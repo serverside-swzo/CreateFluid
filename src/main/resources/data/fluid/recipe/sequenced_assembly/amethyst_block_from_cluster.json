@@ -1,0 +1,89 @@
+{
+  "type": "create:sequenced_assembly",
+  "ingredient": {
+    "item": "minecraft:amethyst_cluster"
+  },
+  "loops": 1,
+  "results": [
+    {
+      "id": "minecraft:amethyst_block"
+    }
+  ],
+  "sequence": [
+    {
+      "type": "create:filling",
+      "ingredients": [
+        {
+          "item": "minecraft:amethyst_cluster"
+        },
+        {
+          "type": "fluid_stack",
+          "amount": 250,
+          "fluid": "minecraft:water"
+        }
+      ],
+      "results": [
+        {
+          "id": "minecraft:amethyst_cluster"
+        }
+      ]
+    },
+    {
+      "type": "create:filling",
+      "ingredients": [
+        {
+          "item": "minecraft:amethyst_cluster"
+        },
+        {
+          "type": "fluid_stack",
+          "amount": 250,
+          "fluid": "minecraft:water"
+        }
+      ],
+      "results": [
+        {
+          "id": "minecraft:amethyst_cluster"
+        }
+      ]
+    },
+    {
+      "type": "create:filling",
+      "ingredients": [
+        {
+          "item": "minecraft:amethyst_cluster"
+        },
+        {
+          "type": "fluid_stack",
+          "amount": 250,
+          "fluid": "minecraft:water"
+        }
+      ],
+      "results": [
+        {
+          "id": "minecraft:amethyst_cluster"
+        }
+      ]
+    },
+    {
+      "type": "create:filling",
+      "ingredients": [
+        {
+          "item": "minecraft:amethyst_cluster"
+        },
+        {
+          "type": "fluid_stack",
+          "amount": 250,
+          "fluid": "minecraft:water"
+        }
+      ],
+      "results": [
+        {
+          "id": "minecraft:amethyst_cluster"
+        }
+      ]
+    }
+  ],
+  "transitional_item": {
+    "id": "minecraft:amethyst_cluster"
+  }
+}
