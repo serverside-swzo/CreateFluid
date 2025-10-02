@@ -1,12 +1,10 @@
 package com.adonis.fluid.registry;
 
 import com.adonis.fluid.CreateFluid;
-import com.adonis.fluid.block.CopperTap.CopperTapRenderer;
 import com.adonis.fluid.ponder.CFPonderPlugin;
 import net.createmod.ponder.foundation.PonderIndex;
 import net.minecraft.client.renderer.ItemBlockRenderTypes;
 import net.minecraft.client.renderer.RenderType;
-import net.minecraft.client.renderer.blockentity.BlockEntityRenderers;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -17,17 +15,21 @@ public class CFClient {
 
     @SubscribeEvent
     public static void onClientSetup(FMLClientSetupEvent event) {
-        CFPartialModels.init(); // 如果你有 PartialModels
+        CFPartialModels.init();
 
         event.enqueueWork(() -> {
             // 设置渲染层
+            ItemBlockRenderTypes.setRenderLayer(CFBlocks.FLUID_INTERFACE.get(), RenderType.cutout());
+            ItemBlockRenderTypes.setRenderLayer(CFBlocks.SMART_FLUID_INTERFACE.get(), RenderType.cutout());
             ItemBlockRenderTypes.setRenderLayer(CFBlocks.COPPER_TAP.get(), RenderType.cutout());
+            ItemBlockRenderTypes.setRenderLayer(CFBlocks.PIPETTE.get(), RenderType.cutout());
 
-            // 注册方块实体渲染器
-            BlockEntityRenderers.register(CFBlockEntities.COPPER_TAP.get(), CopperTapRenderer::new);
+            // 方块实体渲染器已通过 Registrate 自动注册
 
-            // 注册 Ponder 插件 - 这是关键！
+            // 注册 Ponder 插件
             PonderIndex.addPlugin(new CFPonderPlugin());
+
+            CreateFluid.LOGGER.info("Client setup complete");
         });
     }
 }
