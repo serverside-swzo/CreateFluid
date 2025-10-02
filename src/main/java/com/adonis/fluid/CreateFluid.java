@@ -1,6 +1,6 @@
 package com.adonis.fluid;
 
-import com.adonis.fluid.config.CFConfig;
+import com.adonis.fluid.config.CFStressConfig;
 import com.adonis.fluid.registry.*;
 import com.simibubi.create.foundation.item.ItemDescription;
 import com.simibubi.create.foundation.item.KineticStats;
@@ -10,7 +10,10 @@ import net.minecraft.resources.ResourceLocation;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.config.ModConfig;
+import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
+import net.neoforged.neoforge.common.ModConfigSpec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,13 +32,12 @@ public class CreateFluid {
                             .andThen(TooltipModifier.mapNull(KineticStats.create(item)))
             );
 
-    private static CFConfig config;
+    // 关键：在这里定义静态配置常量
+    public static final CFStressConfig STRESS_CONFIG = new CFStressConfig(MOD_ID);
+
+    private static ModConfigSpec stressConfigSpec;
 
     public CreateFluid(IEventBus modEventBus, ModContainer modContainer) {
-        // 初始化配置
-        config = new CFConfig(modContainer);
-        modEventBus.register(config);
-
         // 注册 Registrate
         REGISTRATE.registerEventListeners(modEventBus);
 
@@ -46,9 +48,16 @@ public class CreateFluid {
         CFItems.register();
         CFCreativeTab.register(modEventBus);
 
+        // 注册应力配置
+        ModConfigSpec.Builder stressBuilder = new ModConfigSpec.Builder();
+        STRESS_CONFIG.registerAll(stressBuilder);
+        stressConfigSpec = stressBuilder.build();
+        modContainer.registerConfig(ModConfig.Type.SERVER, stressConfigSpec, STRESS_CONFIG.getName() + ".toml");
+
         // 注册事件监听器
         modEventBus.addListener(this::onCommonSetup);
-        modEventBus.register(CFBlockEntities.class); // 注册能力事件
+        modEventBus.addListener(this::onModConfigEvent);
+        modEventBus.register(CFBlockEntities.class);
 
         LOGGER.info("Create Fluid initialized");
     }
@@ -60,11 +69,19 @@ public class CreateFluid {
         });
     }
 
-    public static ResourceLocation asResource(String path) {
-        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
+    private void onModConfigEvent(ModConfigEvent event) {
+        ModConfig config = event.getConfig();
+
+        if (stressConfigSpec != null && config.getSpec() == stressConfigSpec) {
+            if (event instanceof ModConfigEvent.Loading) {
+                LOGGER.info("Stress config loaded");
+            } else if (event instanceof ModConfigEvent.Reloading) {
+                LOGGER.info("Stress config reloaded");
+            }
+        }
     }
 
-    public static CFConfig config() {
-        return config;
+    public static ResourceLocation asResource(String path) {
+        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
     }
 }

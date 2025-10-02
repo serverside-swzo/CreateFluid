@@ -2,7 +2,8 @@ package com.adonis.fluid.item;
 
 import com.adonis.fluid.content.pipette.FluidInteractionPoint;
 import com.adonis.fluid.packet.PipetteFluidPlacementPacket;
-import com.simibubi.create.AllPackets;
+import com.adonis.fluid.registry.CFBlocks;
+import net.createmod.catnip.platform.CatnipServices;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
@@ -14,7 +15,6 @@ import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.neoforge.network.PacketDistributor;
 
 public class PipetteItem extends BlockItem {
 
@@ -40,10 +40,10 @@ public class PipetteItem extends BlockItem {
     @Override
     protected boolean updateCustomBlockEntityTag(BlockPos pos, Level world, Player player,
                                                  ItemStack stack, BlockState state) {
-        // 放置移液器后，向客户端请求配置
+        // 使用 CatnipServices 发送网络包（与 ArmItem 保持一致）
         if (!world.isClientSide && player instanceof ServerPlayer sp) {
-            PacketDistributor.sendToPlayer(sp, 
-                new PipetteFluidPlacementPacket.ClientBoundRequest(pos));
+            CatnipServices.NETWORK.sendToClient(sp,
+                    new PipetteFluidPlacementPacket.ClientBoundRequest(pos));
         }
 
         return super.updateCustomBlockEntityTag(pos, world, player, stack, state);

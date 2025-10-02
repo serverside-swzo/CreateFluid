@@ -71,13 +71,13 @@ public class CFBlocks {
             .register();
 
     // 在 CFBlocks.java 中添加
-
     public static final BlockEntry<PipetteBlock> PIPETTE = REGISTRATE
             .block("pipette", PipetteBlock::new)
             .initialProperties(SharedProperties::softMetal)
             .properties(prop -> prop
                     .mapColor(MapColor.TERRACOTTA_YELLOW)
                     .noOcclusion())
+            .transform(CreateFluid.STRESS_CONFIG.setImpact(2.0))  // 完全相同的写法
             .transform(TagGen.axeOrPickaxe())
             .blockstate((ctx, prov) -> {
                 prov.getVariantBuilder(ctx.get())
@@ -88,7 +88,6 @@ public class CFBlocks {
                                     .build();
                         });
             })
-            .transform(CreateFluid.config().stress().setImpact(2.0))
             .item(PipetteItem::new)
             .transform(ModelGen.customItemModel())
             .register();
