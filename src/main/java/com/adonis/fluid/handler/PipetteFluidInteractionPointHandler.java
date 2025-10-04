@@ -24,6 +24,7 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 
@@ -32,11 +33,17 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 
-@EventBusSubscriber(value = Dist.CLIENT, bus = EventBusSubscriber.Bus.GAME)
+@EventBusSubscriber(value = Dist.CLIENT, modid = "fluid")
 public class PipetteFluidInteractionPointHandler {
     static List<FluidInteractionPoint> currentSelection = new ArrayList<>();
     static ItemStack currentItem;
     static long lastBlockPos = -1L;
+
+    // 添加客户端 Tick 事件监听
+    @SubscribeEvent
+    public static void onClientTick(ClientTickEvent.Post event) {
+        tick();
+    }
 
     @SubscribeEvent(priority = EventPriority.HIGH)
     public static void rightClickingBlocksSelectsThem(PlayerInteractEvent.RightClickBlock event) {
@@ -93,124 +100,136 @@ public class PipetteFluidInteractionPointHandler {
                 BlockPos pos = event.getPos();
                 if (remove(pos) != null) {
                     event.setCanceled(true);
-                    // 移除 setCancellationResult 调用
                 }
             }
         }
     }
 
     public static void flushSettings(BlockPos pos) {
-        if (currentSelection != null) {
-            int removed = 0;
-            Iterator<FluidInteractionPoint> iterator = currentSelection.iterator();
-
-            while(iterator.hasNext()) {
-                FluidInteractionPoint point = iterator.next();
-                if (!point.getPos().closerThan(pos, PipetteBlockEntity.getRange())) {
-                    iterator.remove();
-                    ++removed;
-                }
-            }
-
-            LocalPlayer player = Minecraft.getInstance().player;
-            if (removed > 0) {
-                CreateLang.builder().translate("fluid.mechanical_pipette.points_outside_range", removed)
-                        .style(ChatFormatting.RED).sendStatus(player);
-            } else {
-                int inputs = 0;
-                int outputs = 0;
-                for (FluidInteractionPoint point : currentSelection) {
-                    if (point.getMode() == FluidInteractionPoint.Mode.DEPOSIT) {
-                        ++outputs;
-                    } else {
-                        ++inputs;
-                    }
-                }
-
-                if (inputs + outputs > 0) {
-                    CreateLang.builder().translate("fluid.mechanical_pipette.summary", inputs, outputs)
-                            .style(ChatFormatting.WHITE).sendStatus(player);
-                }
-            }
-
-            PacketDistributor.sendToServer(new PipetteFluidPlacementPacket(currentSelection, pos));
-            currentSelection.clear();
-            currentItem = null;
+        if (currentSelection == null) {
+            return;
         }
+
+        int removed = 0;
+        Iterator<FluidInteractionPoint> iterator = currentSelection.iterator();
+
+        while(iterator.hasNext()) {
+            FluidInteractionPoint point = iterator.next();
+            if (!point.getPos().closerThan(pos, PipetteBlockEntity.getRange())) {
+                iterator.remove();
+                ++removed;
+            }
+        }
+
+        LocalPlayer player = Minecraft.getInstance().player;
+        if (removed > 0) {
+            CreateLang.builder().translate("fluid.mechanical_pipette.points_outside_range", removed)
+                    .style(ChatFormatting.RED).sendStatus(player);
+        } else {
+            int inputs = 0;
+            int outputs = 0;
+            for (FluidInteractionPoint point : currentSelection) {
+                if (point.getMode() == FluidInteractionPoint.Mode.DEPOSIT) {
+                    ++outputs;
+                } else {
+                    ++inputs;
+                }
+            }
+
+            if (inputs + outputs > 0) {
+                CreateLang.builder().translate("fluid.mechanical_pipette.summary", inputs, outputs)
+                        .style(ChatFormatting.WHITE).sendStatus(player);
+            }
+        }
+
+        PacketDistributor.sendToServer(new PipetteFluidPlacementPacket(currentSelection, pos));
+        currentSelection.clear();
+        currentItem = null;
     }
 
     public static void tick() {
         Player player = Minecraft.getInstance().player;
-        if (player != null) {
-            ItemStack heldItemMainhand = player.getMainHandItem();
 
-            if (CFBlocks.PIPETTE.isIn(heldItemMainhand)) {
-                if (heldItemMainhand != currentItem) {
-                    currentSelection.clear();
-                    currentItem = heldItemMainhand;
-                }
-                drawOutlines(currentSelection);
-            } else {
-                currentItem = null;
+        if (player == null) {
+            return;
+        }
+
+        ItemStack heldItemMainhand = player.getMainHandItem();
+
+        // 检查是否拿着移液器物品
+        if (!CFBlocks.PIPETTE.isIn(heldItemMainhand)) {
+            currentItem = null;
+        } else {
+            if (heldItemMainhand != currentItem) {
+                currentSelection.clear();
+                currentItem = heldItemMainhand;
             }
+            // 持续绘制轮廓线
+            drawOutlines(currentSelection);
+        }
 
-            if (AllItems.WRENCH.isIn(heldItemMainhand)) {
-                HitResult objectMouseOver = Minecraft.getInstance().hitResult;
-                if (objectMouseOver instanceof BlockHitResult result) {
-                    BlockPos pos = result.getBlockPos();
-                    BlockEntity be = Minecraft.getInstance().level.getBlockEntity(pos);
+        // 检查扳手（与动力臂相同的逻辑）
+        checkForWrench(heldItemMainhand);
+    }
 
-                    if (be instanceof PipetteBlockEntity pipette) {
-                        if (lastBlockPos != pos.asLong()) {
-                            currentSelection.clear();
-                            pipette.inputs.forEach(PipetteFluidInteractionPointHandler::put);
-                            pipette.outputs.forEach(PipetteFluidInteractionPointHandler::put);
-                            lastBlockPos = pos.asLong();
-                        }
-                        drawOutlines(currentSelection);
-                    } else {
-                        if (lastBlockPos != -1L) {
-                            lastBlockPos = -1L;
-                            currentSelection.clear();
-                        }
-                    }
-                } else {
-                    if (lastBlockPos != -1L) {
-                        lastBlockPos = -1L;
-                        currentSelection.clear();
-                    }
-                }
-            } else if (currentItem == null) {
-                if (lastBlockPos != -1L) {
-                    lastBlockPos = -1L;
-                    currentSelection.clear();
-                }
-            }
+    private static void checkForWrench(ItemStack heldItem) {
+        if (!AllItems.WRENCH.isIn(heldItem)) {
+            return;
+        }
+
+        HitResult objectMouseOver = Minecraft.getInstance().hitResult;
+        if (!(objectMouseOver instanceof BlockHitResult result)) {
+            return;
+        }
+
+        BlockPos pos = result.getBlockPos();
+        BlockEntity be = Minecraft.getInstance().level.getBlockEntity(pos);
+
+        if (!(be instanceof PipetteBlockEntity)) {
+            lastBlockPos = -1;
+            currentSelection.clear();
+            return;
+        }
+
+        if (lastBlockPos == -1 || lastBlockPos != pos.asLong()) {
+            currentSelection.clear();
+            PipetteBlockEntity pipette = (PipetteBlockEntity) be;
+            pipette.inputs.forEach(PipetteFluidInteractionPointHandler::put);
+            pipette.outputs.forEach(PipetteFluidInteractionPointHandler::put);
+            lastBlockPos = pos.asLong();
+        }
+
+        if (lastBlockPos != -1) {
+            drawOutlines(currentSelection);
         }
     }
 
     private static void drawOutlines(Collection<FluidInteractionPoint> selection) {
-        Iterator<FluidInteractionPoint> iterator = selection.iterator();
-
-        while(iterator.hasNext()) {
+        for (Iterator<FluidInteractionPoint> iterator = selection.iterator(); iterator.hasNext();) {
             FluidInteractionPoint point = iterator.next();
+
             if (!point.isValid()) {
                 iterator.remove();
-            } else {
-                Level level = point.getLevel();
-                BlockPos pos = point.getPos();
-                BlockState state = level.getBlockState(pos);
-                VoxelShape shape = state.getShape(level, pos);
-                if (!shape.isEmpty()) {
-                    int color = point.getMode().getColor();
-                    Outliner.getInstance().showAABB(point, shape.bounds().move(pos))
-                            .colored(color).lineWidth(0.0625F);
-                }
+                continue;
             }
+
+            Level level = point.getLevel();
+            BlockPos pos = point.getPos();
+            BlockState state = level.getBlockState(pos);
+            VoxelShape shape = state.getShape(level, pos);
+
+            if (shape.isEmpty()) {
+                continue;
+            }
+
+            int color = point.getMode().getColor();
+            Outliner.getInstance().showAABB(point, shape.bounds().move(pos))
+                    .colored(color)
+                    .lineWidth(1 / 16f);
         }
     }
 
-    public static void put(FluidInteractionPoint point) {
+    private static void put(FluidInteractionPoint point) {
         currentSelection.add(point);
     }
 
@@ -222,7 +241,7 @@ public class PipetteFluidInteractionPointHandler {
         return result;
     }
 
-    public static FluidInteractionPoint getSelected(BlockPos pos) {
+    private static FluidInteractionPoint getSelected(BlockPos pos) {
         for (FluidInteractionPoint point : currentSelection) {
             if (point.getPos().equals(pos)) {
                 return point;

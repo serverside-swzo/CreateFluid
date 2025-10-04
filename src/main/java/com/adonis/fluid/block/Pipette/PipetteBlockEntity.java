@@ -1,10 +1,13 @@
 package com.adonis.fluid.block.Pipette;
 
+import com.adonis.fluid.content.pipette.DepotFluidInteractionPoint;
 import com.adonis.fluid.content.pipette.FluidInteractionPoint;
+import com.adonis.fluid.packet.PipetteParticlePacket;
 import com.simibubi.create.api.contraption.transformable.TransformableBlockEntity;
 import com.simibubi.create.api.equipment.goggles.IHaveGoggleInformation;
 import com.simibubi.create.content.contraptions.StructureTransform;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
+import com.simibubi.create.content.logistics.depot.DepotBehaviour;
 import com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour;
 import com.simibubi.create.foundation.blockEntity.behaviour.CenteredSideValueBoxTransform;
 import com.simibubi.create.foundation.blockEntity.behaviour.scrollValue.INamedIconOptions;
@@ -30,6 +33,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -278,6 +282,27 @@ public class PipetteBlockEntity extends KineticBlockEntity
     protected void searchForFluid() {
         if (this.redstoneLocked) return;
 
+        // 如果有流体，优先检查是否有置物台需要注液
+        if (!this.heldFluid.isEmpty()) {
+            for (FluidInteractionPoint output : this.outputs) {
+                if (output instanceof DepotFluidInteractionPoint depotPoint) {
+                    if (depotPoint.hasItemForFilling() && depotPoint.canInsert(this.heldFluid)) {
+                        this.phase = Phase.SEARCH_OUTPUTS;
+                        this.chasedPointProgress = 0.0F;
+                        this.chasedPointIndex = -1;
+                        searchForDestination();
+                        return;
+                    }
+                } else if (output.isValid() && output.canInsert(this.heldFluid)) {
+                    this.phase = Phase.SEARCH_OUTPUTS;
+                    this.chasedPointProgress = 0.0F;
+                    this.chasedPointIndex = -1;
+                    searchForDestination();
+                    return;
+                }
+            }
+        }
+
         if (!this.heldFluid.isEmpty()) {
             for (FluidInteractionPoint output : this.outputs) {
                 if (output.isValid() && output.canInsert(this.heldFluid)) {
@@ -360,15 +385,142 @@ public class PipetteBlockEntity extends KineticBlockEntity
             return;
         }
 
-        FluidStack toInsert = this.heldFluid.copy();
-        FluidStack remainder = point.insert(toInsert, false);
-        this.heldFluid = remainder;
+        // 特殊处理置物台
+        if (point instanceof DepotFluidInteractionPoint depotPoint) {
+            DepotBehaviour behaviour = BlockEntityBehaviour.get(level, point.getPos(), DepotBehaviour.TYPE);
+            if (behaviour == null) return;
+
+            ItemStack itemOnDepot = behaviour.getHeldItemStack();
+            if (itemOnDepot != null && !itemOnDepot.isEmpty()) {
+                // 重要：只处理单个物品
+                ItemStack singleItem = itemOnDepot.copy();
+                singleItem.setCount(1);
+
+                int requiredAmount = com.simibubi.create.content.fluids.spout.FillingBySpout
+                        .getRequiredAmountForItem(this.level, singleItem, this.heldFluid);
+
+                if (requiredAmount > 0 && requiredAmount <= this.heldFluid.getAmount()) {
+                    FluidStack fluidForFilling = this.heldFluid.copy();
+                    fluidForFilling.setAmount(requiredAmount);
+
+                    ItemStack result = com.simibubi.create.content.fluids.spout.FillingBySpout
+                            .fillItem(this.level, requiredAmount, singleItem, fluidForFilling);
+
+                    if (!result.isEmpty()) {
+                        // 保存流体用于粒子效果
+                        FluidStack fluidForParticles = fluidForFilling.copy();
+
+                        // 只减少一个物品
+                        itemOnDepot.shrink(1);
+
+                        // 创建新的 TransportedItemStack 列表
+                        List<com.simibubi.create.content.kinetics.belt.transport.TransportedItemStack> allStacks = new ArrayList<>();
+
+                        // 如果还有剩余的原物品，添加到列表
+                        if (!itemOnDepot.isEmpty()) {
+                            com.simibubi.create.content.kinetics.belt.transport.TransportedItemStack remainingStack =
+                                    new com.simibubi.create.content.kinetics.belt.transport.TransportedItemStack(itemOnDepot);
+                            remainingStack.beltPosition = 0.5f;
+                            remainingStack.prevBeltPosition = 0.5f;
+                            allStacks.add(remainingStack);
+                        }
+
+                        // 添加结果物品到列表
+                        com.simibubi.create.content.kinetics.belt.transport.TransportedItemStack resultStack =
+                                new com.simibubi.create.content.kinetics.belt.transport.TransportedItemStack(result);
+                        resultStack.beltPosition = 0.5f;
+                        resultStack.prevBeltPosition = 0.5f;
+                        allStacks.add(resultStack);
+
+                        // 设置置物台上的物品为第一个（如果有剩余就是剩余的，否则就是结果）
+                        if (!allStacks.isEmpty()) {
+                            behaviour.setHeldItem(allStacks.get(0));
+
+                            // 如果有额外的物品，尝试放入输出缓冲区
+                            if (allStacks.size() > 1) {
+                                try {
+                                    java.lang.reflect.Field bufferField = DepotBehaviour.class.getDeclaredField("processingOutputBuffer");
+                                    bufferField.setAccessible(true);
+                                    net.neoforged.neoforge.items.ItemStackHandler outputBuffer =
+                                            (net.neoforged.neoforge.items.ItemStackHandler) bufferField.get(behaviour);
+
+                                    for (int i = 1; i < allStacks.size(); i++) {
+                                        ItemStack stackToInsert = allStacks.get(i).stack;
+                                        for (int slot = 0; slot < outputBuffer.getSlots() && !stackToInsert.isEmpty(); slot++) {
+                                            stackToInsert = outputBuffer.insertItem(slot, stackToInsert, false);
+                                        }
+
+                                        // 如果还有剩余，掉落在地上
+                                        if (!stackToInsert.isEmpty()) {
+                                            net.minecraft.world.phys.Vec3 dropPos =
+                                                    net.createmod.catnip.math.VecHelper.getCenterOf(point.getPos());
+                                            net.minecraft.world.Containers.dropItemStack(
+                                                    this.level,
+                                                    dropPos.x,
+                                                    dropPos.y + 0.5,
+                                                    dropPos.z,
+                                                    stackToInsert
+                                            );
+                                        }
+                                    }
+                                } catch (Exception e) {
+                                    // 如果反射失败，直接掉落额外的物品
+                                    for (int i = 1; i < allStacks.size(); i++) {
+                                        net.minecraft.world.phys.Vec3 dropPos =
+                                                net.createmod.catnip.math.VecHelper.getCenterOf(point.getPos());
+                                        net.minecraft.world.Containers.dropItemStack(
+                                                this.level,
+                                                dropPos.x,
+                                                dropPos.y + 0.5,
+                                                dropPos.z,
+                                                allStacks.get(i).stack
+                                        );
+                                    }
+                                }
+                            }
+                        }
+
+                        behaviour.blockEntity.notifyUpdate();
+                        this.heldFluid.shrink(requiredAmount);
+
+                        // 播放音效
+                        this.level.playSound(null, point.getPos(),
+                                com.simibubi.create.AllSoundEvents.SPOUTING.getMainEvent(),
+                                net.minecraft.sounds.SoundSource.BLOCKS,
+                                0.75F, 0.9F + 0.2F * this.level.random.nextFloat());
+
+                        // 发送粒子效果
+                        if (!this.level.isClientSide && !fluidForParticles.isEmpty()) {
+                            sendFillingParticles(point.getPos(), fluidForParticles);
+                        }
+                    }
+                }
+            }
+        } else {
+            // 普通流体容器处理
+            FluidStack toInsert = this.heldFluid.copy();
+            FluidStack remainder = point.insert(toInsert, false);
+            this.heldFluid = remainder;
+        }
 
         this.phase = this.heldFluid.isEmpty() ? Phase.SEARCH_INPUTS : Phase.SEARCH_OUTPUTS;
         this.chasedPointProgress = 0.0F;
         this.chasedPointIndex = -1;
         this.sendData();
         this.setChanged();
+    }
+
+    private void sendFillingParticles(BlockPos targetPos, FluidStack fluid) {
+        if (this.level.isClientSide || fluid.isEmpty()) return;
+
+        Vec3 particlePos = net.createmod.catnip.math.VecHelper.getCenterOf(targetPos).add(0, 0.5, 0);
+
+        // 使用 NeoForge 的 PacketDistributor
+        net.neoforged.neoforge.network.PacketDistributor.sendToPlayersTrackingChunk(
+                (net.minecraft.server.level.ServerLevel) this.level,
+                new net.minecraft.world.level.ChunkPos(targetPos),
+                new com.adonis.fluid.packet.PipetteParticlePacket(particlePos, fluid)
+        );
     }
 
     protected void collectFluid() {
@@ -555,9 +707,12 @@ public class PipetteBlockEntity extends KineticBlockEntity
         compound.putBoolean("Powered", this.redstoneLocked);
         compound.putBoolean("Goggles", this.goggles);
 
-        // 修复：只有当流体不为空时才保存
+        // 修复：检查流体是否为空
         if (!this.heldFluid.isEmpty()) {
             compound.put("HeldFluid", this.heldFluid.save(registries));
+        } else {
+            // 如果流体为空，写入一个空标记
+            compound.putBoolean("EmptyFluid", true);
         }
 
         compound.putInt("TargetPointIndex", this.chasedPointIndex);
@@ -572,8 +727,10 @@ public class PipetteBlockEntity extends KineticBlockEntity
 
         super.read(compound, registries, clientPacket);
 
-        // 修复：如果没有 HeldFluid 标签，设置为空
-        if (compound.contains("HeldFluid")) {
+        // 修复：正确处理流体读取
+        if (compound.contains("EmptyFluid") && compound.getBoolean("EmptyFluid")) {
+            this.heldFluid = FluidStack.EMPTY;
+        } else if (compound.contains("HeldFluid")) {
             this.heldFluid = FluidStack.parseOptional(registries, compound.getCompound("HeldFluid"));
         } else {
             this.heldFluid = FluidStack.EMPTY;
@@ -629,6 +786,13 @@ public class PipetteBlockEntity extends KineticBlockEntity
     public void writeSafe(CompoundTag compound, HolderLookup.Provider registries) {
         super.writeSafe(compound, registries);
         this.writeInteractionPoints(compound);
+
+        // 添加流体保存
+        if (!this.heldFluid.isEmpty()) {
+            compound.put("HeldFluid", this.heldFluid.save(registries));
+        } else {
+            compound.putBoolean("EmptyFluid", true);
+        }
     }
 
     @Override
@@ -639,7 +803,15 @@ public class PipetteBlockEntity extends KineticBlockEntity
 
         super.loadAdditional(compound, registries);
 
-        this.heldFluid = FluidStack.parseOptional(registries, compound.getCompound("HeldFluid"));
+        // 修复：正确处理流体读取
+        if (compound.contains("EmptyFluid") && compound.getBoolean("EmptyFluid")) {
+            this.heldFluid = FluidStack.EMPTY;
+        } else if (compound.contains("HeldFluid")) {
+            this.heldFluid = FluidStack.parseOptional(registries, compound.getCompound("HeldFluid"));
+        } else {
+            this.heldFluid = FluidStack.EMPTY;
+        }
+
         this.phase = NBTHelper.readEnum(compound, "Phase", Phase.class);
         this.chasedPointIndex = compound.getInt("TargetPointIndex");
         this.chasedPointProgress = compound.getFloat("MovementProgress");

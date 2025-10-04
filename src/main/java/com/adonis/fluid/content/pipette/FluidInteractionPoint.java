@@ -46,6 +46,11 @@ public class FluidInteractionPoint {
 
     @Nullable
     public static FluidInteractionPoint create(Level level, BlockPos pos, BlockState state) {
+        // 优先检查是否为置物台
+        if (AllBlocks.DEPOT.has(state)) {
+            return new DepotFluidInteractionPoint(level, pos, state);
+        }
+
         // 炼药锅
         if (isCauldron(state)) {
             return new FluidInteractionPoint(level, pos, state);
@@ -60,6 +65,11 @@ public class FluidInteractionPoint {
     }
 
     private static boolean isValidFluidBlock(BlockState state) {
+        // 添加置物台支持
+        if (AllBlocks.DEPOT.has(state)) {
+            return true;
+        }
+
         if (AllBlocks.BASIN.has(state) ||
                 CFBlocks.FLUID_INTERFACE.has(state) ||
                 CFBlocks.SMART_FLUID_INTERFACE.has(state)) {
