@@ -65,6 +65,12 @@ public class CFBlockEntities {
         // 注册移液器的流体能力
         PipetteBlockEntity.registerCapabilities(event);
 
+        // 注册流体接口的流体能力
+        FluidInterfaceBlockEntity.registerCapabilities(event);
+
+        // 注册智能流体接口的流体能力
+        SmartFluidInterfaceBlockEntity.registerCapabilities(event);
+
         CreateFluid.LOGGER.info("Fluid capabilities registered");
     }
 }

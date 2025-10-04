@@ -282,7 +282,9 @@ public class FluidInterfaceBlock extends HorizontalDirectionalBlock implements I
         if (level.isClientSide)
             return fluidStack;
 
-        result = GenericItemEmptying.emptyItem(level, stack, false);
+        // 根据参考代码的逻辑
+        ItemStack copy = stack.copy();
+        result = GenericItemEmptying.emptyItem(level, copy, false);
         ItemStack resultItem = result.getSecond();
 
         capability.fill(fluidStack.copy(), FluidAction.EXECUTE);
@@ -295,10 +297,10 @@ public class FluidInterfaceBlock extends HorizontalDirectionalBlock implements I
         }
 
         if (!player.isCreative() && !(targetBlockEntity instanceof CreativeFluidTankBlockEntity)) {
-            if (stack.getCount() == 1) {
+            if (copy.isEmpty()) {
                 player.setItemInHand(hand, resultItem);
             } else {
-                stack.shrink(1);
+                player.setItemInHand(hand, copy);
                 player.getInventory().placeItemBackInInventory(resultItem);
             }
         }
@@ -336,12 +338,7 @@ public class FluidInterfaceBlock extends HorizontalDirectionalBlock implements I
             capability.drain(drainFluid, FluidAction.EXECUTE);
 
             if (!player.isCreative()) {
-                if (stack.getCount() == 1 && result.getCount() == 1) {
-                    player.setItemInHand(hand, result);
-                } else {
-                    stack.shrink(1);
-                    player.getInventory().placeItemBackInInventory(result);
-                }
+                player.getInventory().placeItemBackInInventory(result);
             }
 
             if (targetBlockEntity != null) {
@@ -350,7 +347,8 @@ public class FluidInterfaceBlock extends HorizontalDirectionalBlock implements I
                     serverLevel.getChunkSource().blockChanged(targetPos);
             }
 
-            return drainFluid;
+            // 使用 copyWithAmount 而不是 withAmount
+            return fluidStack.copyWithAmount(requiredAmount);
         }
 
         return FluidStack.EMPTY;
