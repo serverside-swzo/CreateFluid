@@ -27,16 +27,20 @@ public class FluidInteractionPoint {
     protected Level level;
     protected long lastKnownValid = -1;
 
+    // Update constructor to handle belt default mode
     public FluidInteractionPoint(Level level, BlockPos pos, BlockState state) {
         this.level = level;
         this.pos = pos;
         this.face = Direction.UP;
 
-        // 根据方块类型设置默认模式
+        // Set default modes based on block type
         if (isBlazeBurner(state)) {
             this.mode = Mode.DEPOSIT;
         } else if (isBeehive(state)) {
             this.mode = Mode.TAKE;
+        } else if (AllBlocks.BELT.has(state)) {
+            // Belts can only be outputs (deposit mode)
+            this.mode = Mode.DEPOSIT;
         } else if (isCauldron(state)) {
             this.mode = Mode.DEPOSIT;
         } else {
@@ -46,17 +50,55 @@ public class FluidInteractionPoint {
 
     @Nullable
     public static FluidInteractionPoint create(Level level, BlockPos pos, BlockState state) {
-        // 优先检查是否为置物台
+        // Priority check for depot
         if (AllBlocks.DEPOT.has(state)) {
             return new DepotFluidInteractionPoint(level, pos, state);
         }
 
-        // 炼药锅
+        // Belt support - create interaction point for selection only
+        // Actual processing handled by VirtualRelayManager
+        if (AllBlocks.BELT.has(state)) {
+            // Only create interaction point for belts that can transport objects
+            if (com.simibubi.create.content.kinetics.belt.BeltBlock.canTransportObjects(state)) {
+                return new FluidInteractionPoint(level, pos, state) {
+                    @Override
+                    public boolean canExtract() {
+                        return false; // Belts cannot be fluid sources
+                    }
+
+                    @Override
+                    public boolean canInsert(FluidStack stack) {
+                        // Always show as valid output for selection
+                        return this.mode == Mode.DEPOSIT;
+                    }
+
+                    @Override
+                    public FluidStack extract(int maxAmount, boolean simulate) {
+                        return FluidStack.EMPTY;
+                    }
+
+                    @Override
+                    public FluidStack insert(FluidStack stack, boolean simulate) {
+                        // Return original stack (no direct insertion)
+                        return stack;
+                    }
+
+                    @Override
+                    public void cycleMode() {
+                        // Belts can only be outputs
+                        this.mode = Mode.DEPOSIT;
+                    }
+                };
+            }
+            return null;
+        }
+
+        // Cauldron support
         if (isCauldron(state)) {
             return new FluidInteractionPoint(level, pos, state);
         }
 
-        // 其他有效方块
+        // Other valid blocks
         if (isValidFluidBlock(state)) {
             return new FluidInteractionPoint(level, pos, state);
         }
@@ -65,7 +107,12 @@ public class FluidInteractionPoint {
     }
 
     private static boolean isValidFluidBlock(BlockState state) {
-        // 添加置物台支持
+        // Belt support
+        if (AllBlocks.BELT.has(state)) {
+            return com.simibubi.create.content.kinetics.belt.BeltBlock.canTransportObjects(state);
+        }
+
+        // Depot support
         if (AllBlocks.DEPOT.has(state)) {
             return true;
         }
@@ -105,6 +152,15 @@ public class FluidInteractionPoint {
         if (gameTime == lastKnownValid) return true;
 
         BlockState state = level.getBlockState(pos);
+
+        // Belts are always valid if they can transport
+        if (AllBlocks.BELT.has(state)) {
+            if (com.simibubi.create.content.kinetics.belt.BeltBlock.canTransportObjects(state)) {
+                lastKnownValid = gameTime;
+                return true;
+            }
+            return false;
+        }
 
         // 炼药锅特殊处理
         if (isCauldron(state)) {

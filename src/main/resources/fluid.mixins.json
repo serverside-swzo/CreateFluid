@@ -5,6 +5,8 @@
   "compatibilityLevel": "JAVA_21",
   "refmap": "fluid.refmap.json",
   "mixins": [
+    "BeltInventoryMixin",
+    "LightningBoltMixin"
   ],
   "client": [
   ],
