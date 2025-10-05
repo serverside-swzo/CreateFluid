@@ -1,7 +1,9 @@
 package com.adonis.fluid.block.Pipette;
 
+import com.adonis.fluid.CreateFluid;
 import com.adonis.fluid.content.pipette.DepotFluidInteractionPoint;
 import com.adonis.fluid.content.pipette.FluidInteractionPoint;
+import com.adonis.fluid.handler.CFPacketHandler;
 import com.adonis.fluid.packet.PipetteParticlePacket;
 import com.simibubi.create.api.contraption.transformable.TransformableBlockEntity;
 import com.simibubi.create.api.equipment.goggles.IHaveGoggleInformation;
@@ -30,10 +32,12 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -388,11 +392,13 @@ public class PipetteBlockEntity extends KineticBlockEntity
         // 特殊处理置物台
         if (point instanceof DepotFluidInteractionPoint depotPoint) {
             DepotBehaviour behaviour = BlockEntityBehaviour.get(level, point.getPos(), DepotBehaviour.TYPE);
-            if (behaviour == null) return;
+            if (behaviour == null) {
+                return;
+            }
 
             ItemStack itemOnDepot = behaviour.getHeldItemStack();
+
             if (itemOnDepot != null && !itemOnDepot.isEmpty()) {
-                // 重要：只处理单个物品
                 ItemStack singleItem = itemOnDepot.copy();
                 singleItem.setCount(1);
 
@@ -400,6 +406,10 @@ public class PipetteBlockEntity extends KineticBlockEntity
                         .getRequiredAmountForItem(this.level, singleItem, this.heldFluid);
 
                 if (requiredAmount > 0 && requiredAmount <= this.heldFluid.getAmount()) {
+                    // 重要：在调用 fillItem 之前保存流体副本！
+                    FluidStack fluidForParticles = this.heldFluid.copy();
+                    fluidForParticles.setAmount(requiredAmount);
+
                     FluidStack fluidForFilling = this.heldFluid.copy();
                     fluidForFilling.setAmount(requiredAmount);
 
@@ -407,9 +417,6 @@ public class PipetteBlockEntity extends KineticBlockEntity
                             .fillItem(this.level, requiredAmount, singleItem, fluidForFilling);
 
                     if (!result.isEmpty()) {
-                        // 保存流体用于粒子效果
-                        FluidStack fluidForParticles = fluidForFilling.copy();
-
                         // 只减少一个物品
                         itemOnDepot.shrink(1);
 
@@ -432,11 +439,11 @@ public class PipetteBlockEntity extends KineticBlockEntity
                         resultStack.prevBeltPosition = 0.5f;
                         allStacks.add(resultStack);
 
-                        // 设置置物台上的物品为第一个（如果有剩余就是剩余的，否则就是结果）
+                        // 设置置物台上的物品
                         if (!allStacks.isEmpty()) {
                             behaviour.setHeldItem(allStacks.get(0));
 
-                            // 如果有额外的物品，尝试放入输出缓冲区
+                            // 处理额外的物品
                             if (allStacks.size() > 1) {
                                 try {
                                     java.lang.reflect.Field bufferField = DepotBehaviour.class.getDeclaredField("processingOutputBuffer");
@@ -450,7 +457,6 @@ public class PipetteBlockEntity extends KineticBlockEntity
                                             stackToInsert = outputBuffer.insertItem(slot, stackToInsert, false);
                                         }
 
-                                        // 如果还有剩余，掉落在地上
                                         if (!stackToInsert.isEmpty()) {
                                             net.minecraft.world.phys.Vec3 dropPos =
                                                     net.createmod.catnip.math.VecHelper.getCenterOf(point.getPos());
@@ -464,7 +470,6 @@ public class PipetteBlockEntity extends KineticBlockEntity
                                         }
                                     }
                                 } catch (Exception e) {
-                                    // 如果反射失败，直接掉落额外的物品
                                     for (int i = 1; i < allStacks.size(); i++) {
                                         net.minecraft.world.phys.Vec3 dropPos =
                                                 net.createmod.catnip.math.VecHelper.getCenterOf(point.getPos());
@@ -497,12 +502,12 @@ public class PipetteBlockEntity extends KineticBlockEntity
                 }
             }
         } else {
-            // 普通流体容器处理
             FluidStack toInsert = this.heldFluid.copy();
             FluidStack remainder = point.insert(toInsert, false);
             this.heldFluid = remainder;
         }
 
+        // 重置状态
         this.phase = this.heldFluid.isEmpty() ? Phase.SEARCH_INPUTS : Phase.SEARCH_OUTPUTS;
         this.chasedPointProgress = 0.0F;
         this.chasedPointIndex = -1;
@@ -511,16 +516,27 @@ public class PipetteBlockEntity extends KineticBlockEntity
     }
 
     private void sendFillingParticles(BlockPos targetPos, FluidStack fluid) {
-        if (this.level.isClientSide || fluid.isEmpty()) return;
+        if (this.level.isClientSide) {
+            return;
+        }
 
-        Vec3 particlePos = net.createmod.catnip.math.VecHelper.getCenterOf(targetPos).add(0, 0.5, 0);
+        if (fluid.isEmpty()) {
+            return;
+        }
 
-        // 使用 NeoForge 的 PacketDistributor
-        net.neoforged.neoforge.network.PacketDistributor.sendToPlayersTrackingChunk(
-                (net.minecraft.server.level.ServerLevel) this.level,
-                new net.minecraft.world.level.ChunkPos(targetPos),
-                new com.adonis.fluid.packet.PipetteParticlePacket(particlePos, fluid)
-        );
+        Vec3 particlePos = net.createmod.catnip.math.VecHelper.getCenterOf(targetPos).add(0, 0.8125, 0);
+
+        PipetteParticlePacket packet = new PipetteParticlePacket(particlePos, fluid);
+
+        try {
+            CFPacketHandler.sendToPlayersTrackingChunk(
+                    (ServerLevel) this.level,
+                    new ChunkPos(targetPos),
+                    packet
+            );
+        } catch (Exception e) {
+            // 静默处理异常
+        }
     }
 
     protected void collectFluid() {

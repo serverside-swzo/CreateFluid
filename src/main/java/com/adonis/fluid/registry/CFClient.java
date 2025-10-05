@@ -28,8 +28,6 @@ public class CFClient {
 
             // 注册 Ponder 插件
             PonderIndex.addPlugin(new CFPonderPlugin());
-
-            CreateFluid.LOGGER.info("Client setup complete");
         });
     }
 }

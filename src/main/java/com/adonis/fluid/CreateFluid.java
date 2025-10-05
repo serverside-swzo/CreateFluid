@@ -14,8 +14,6 @@ import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.common.ModConfigSpec;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.Random;
 
@@ -24,7 +22,6 @@ public class CreateFluid {
     public static final String MOD_ID = "fluid";
     public static final String NAME = "Create Fluid";
     public static final Random RANDOM = new Random();
-    public static final Logger LOGGER = LoggerFactory.getLogger(NAME);
 
     public static final CFRegistrate REGISTRATE = CFRegistrate.create(MOD_ID)
             .setTooltipModifierFactory(item ->
@@ -58,14 +55,11 @@ public class CreateFluid {
         modEventBus.addListener(this::onCommonSetup);
         modEventBus.addListener(this::onModConfigEvent);
         modEventBus.register(CFBlockEntities.class);
-
-        LOGGER.info("Create Fluid initialized");
     }
 
     private void onCommonSetup(FMLCommonSetupEvent event) {
         event.enqueueWork(() -> {
             CFPartialModels.init();
-            LOGGER.info("Partial models initialized");
         });
     }
 
@@ -73,11 +67,7 @@ public class CreateFluid {
         ModConfig config = event.getConfig();
 
         if (stressConfigSpec != null && config.getSpec() == stressConfigSpec) {
-            if (event instanceof ModConfigEvent.Loading) {
-                LOGGER.info("Stress config loaded");
-            } else if (event instanceof ModConfigEvent.Reloading) {
-                LOGGER.info("Stress config reloaded");
-            }
+            // 配置已加载或重新加载，静默处理
         }
     }
 

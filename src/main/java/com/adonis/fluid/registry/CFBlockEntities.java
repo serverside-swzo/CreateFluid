@@ -53,7 +53,6 @@ public class CFBlockEntities {
             .register();
 
     public static void register() {
-        CreateFluid.LOGGER.info("CFBlockEntities registered");
     }
 
     public static void registerToEventBus(IEventBus bus) {
@@ -70,7 +69,5 @@ public class CFBlockEntities {
 
         // 注册智能流体接口的流体能力
         SmartFluidInterfaceBlockEntity.registerCapabilities(event);
-
-        CreateFluid.LOGGER.info("Fluid capabilities registered");
     }
 }
