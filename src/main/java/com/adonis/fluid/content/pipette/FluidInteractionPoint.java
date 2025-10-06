@@ -55,6 +55,11 @@ public class FluidInteractionPoint {
             return new DepotFluidInteractionPoint(level, pos, state);
         }
 
+        // 检查分液池 - 添加这部分
+        if (AllBlocks.ITEM_DRAIN.has(state)) {
+            return new ItemDrainFluidInteractionPoint(level, pos, state);
+        }
+
         // Belt support - create interaction point for selection only
         // Actual processing handled by VirtualRelayManager
         if (AllBlocks.BELT.has(state)) {
@@ -114,6 +119,10 @@ public class FluidInteractionPoint {
 
         // Depot support
         if (AllBlocks.DEPOT.has(state)) {
+            return true;
+        }
+
+        if (AllBlocks.ITEM_DRAIN.has(state)) {
             return true;
         }
 
@@ -260,7 +269,10 @@ public class FluidInteractionPoint {
         // 炼药锅特殊处理
         if (isCauldron(state)) {
             if (state.is(Blocks.CAULDRON)) {
-                return stack.getFluid() == Fluids.WATER || stack.getFluid() == Fluids.LAVA;
+                // 空炼药锅只接受水和岩浆
+                return stack.getFluid() == Fluids.WATER ||
+                        stack.getFluid() == Fluids.LAVA;
+                // TODO: 添加细雪流体支持
             }
 
             if (state.is(Blocks.WATER_CAULDRON)) {
@@ -269,11 +281,12 @@ public class FluidInteractionPoint {
             }
 
             if (state.is(Blocks.LAVA_CAULDRON)) {
-                return false;
+                return false; // 满的岩浆炼药锅不能再填充
             }
 
+            // 细雪炼药锅暂时返回false
             if (state.is(Blocks.POWDER_SNOW_CAULDRON)) {
-                return false;
+                return false; // TODO: 待细雪流体迁移后更新
             }
         }
 
