@@ -20,6 +20,7 @@ public class CFCreativeTab {
                     .icon(() -> CFBlocks.COPPER_TAP.asStack())
                     .displayItems((parameters, output) -> {
                         // 手动添加方块
+                        output.accept(CFItems.BATON);
                         output.accept(CFBlocks.PIPETTE);
                         output.accept(CFBlocks.COPPER_TAP);
                         output.accept(CFBlocks.FLUID_INTERFACE);

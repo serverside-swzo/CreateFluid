@@ -14,6 +14,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 import java.util.Collection;
@@ -60,28 +61,43 @@ public record PipetteFluidPlacementPacket(ListTag pointsTag, BlockPos pos) imple
             if (!(context.player() instanceof ServerPlayer player)) return;
 
             Level world = player.level();
-            if (!world.isLoaded(pos)) return;
+            if (!world.isLoaded(this.pos)) return;
 
-            BlockEntity be = world.getBlockEntity(pos);
+            BlockEntity be = world.getBlockEntity(this.pos);
             if (be instanceof PipetteBlockEntity pipette) {
                 pipette.inputs.clear();
                 pipette.outputs.clear();
 
-                pipette.setInteractionPointTag(pointsTag);
+                pipette.setInteractionPointTag(this.pointsTag);
+                pipette.setUpdateInteractionPoints(true);
                 pipette.resetMovementState();
-                pipette.forceReloadInteractionPoints();
+
+                // 立即初始化
+                pipette.forceInitInteractionPoints();
 
                 pipette.setChanged();
                 pipette.sendData();
 
-                world.getServer().execute(() -> {
-                    world.sendBlockUpdated(pos, pipette.getBlockState(), pipette.getBlockState(), 3);
-                });
+                // 发送客户端同步包
+                if (world instanceof net.minecraft.server.level.ServerLevel serverLevel) {
+                    PipetteInteractionPointSyncPacket syncPacket =
+                            new PipetteInteractionPointSyncPacket(this.pos, this.pointsTag);
+
+                    try {
+                        PacketDistributor.sendToPlayersTrackingChunk(
+                                serverLevel,
+                                new net.minecraft.world.level.ChunkPos(this.pos),
+                                syncPacket
+                        );
+                    } catch (Exception e) {
+                        // 静默处理
+                    }
+                }
             }
         });
     }
 
-    // 客户端请求包
+    // ========== ClientBoundRequest：服务端请求客户端刷新设置 ==========
     public record ClientBoundRequest(BlockPos pos) implements CustomPacketPayload {
 
         public static final Type<ClientBoundRequest> TYPE =
@@ -107,7 +123,8 @@ public record PipetteFluidPlacementPacket(ListTag pointsTag, BlockPos pos) imple
         }
 
         private void handleClient() {
-            com.adonis.fluid.handler.PipetteFluidInteractionPointHandler.flushSettings(pos);
+            // 调用客户端处理器刷新设置
+            com.adonis.fluid.handler.PipetteFluidInteractionPointHandler.flushSettings(this.pos);
         }
     }
 }
