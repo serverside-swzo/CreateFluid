@@ -108,12 +108,25 @@ public class SmartFluidInterfaceBlock extends HorizontalDirectionalBlock impleme
         return getShape(state, level, pos, context);
     }
 
-    // 检查方块是否有流体存储能力 - 支持树叶
+    // 检查是否是铜格栅（所有变种）
+    private boolean isCopperGrate(BlockState state) {
+        Block block = state.getBlock();
+        return block == Blocks.COPPER_GRATE ||
+                block == Blocks.EXPOSED_COPPER_GRATE ||
+                block == Blocks.WEATHERED_COPPER_GRATE ||
+                block == Blocks.OXIDIZED_COPPER_GRATE ||
+                block == Blocks.WAXED_COPPER_GRATE ||
+                block == Blocks.WAXED_EXPOSED_COPPER_GRATE ||
+                block == Blocks.WAXED_WEATHERED_COPPER_GRATE ||
+                block == Blocks.WAXED_OXIDIZED_COPPER_GRATE;
+    }
+
+    // 检查方块是否有流体存储能力 - 支持树叶和铜格栅
     private boolean hasFluidCapability(Level level, BlockPos pos, Direction fromDirection) {
         BlockState blockState = level.getBlockState(pos);
 
-        // 检查是否是树叶
-        if (blockState.is(BlockTags.LEAVES)) {
+        // 检查是否是树叶或铜格栅
+        if (blockState.is(BlockTags.LEAVES) || isCopperGrate(blockState)) {
             return true;
         }
 
@@ -159,7 +172,7 @@ public class SmartFluidInterfaceBlock extends HorizontalDirectionalBlock impleme
         BlockPos attachedPos = pos.relative(direction.getOpposite());
         BlockState attachedState = level.getBlockState(attachedPos);
 
-        if (attachedState.is(BlockTags.LEAVES)) {
+        if (attachedState.is(BlockTags.LEAVES) || isCopperGrate(attachedState)) {
             return true;
         }
 
@@ -171,8 +184,8 @@ public class SmartFluidInterfaceBlock extends HorizontalDirectionalBlock impleme
     }
 
     @Override
-    protected BlockState updateShape(BlockState state, Direction direction, BlockState neighborState, 
-                                    LevelAccessor level, BlockPos currentPos, BlockPos neighborPos) {
+    protected BlockState updateShape(BlockState state, Direction direction, BlockState neighborState,
+                                     LevelAccessor level, BlockPos currentPos, BlockPos neighborPos) {
         if (direction.getOpposite() == state.getValue(FACING) && !state.canSurvive(level, currentPos)) {
             return Blocks.AIR.defaultBlockState();
         }
@@ -190,14 +203,14 @@ public class SmartFluidInterfaceBlock extends HorizontalDirectionalBlock impleme
     }
 
     @Override
-    protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, 
-                                              Player player, BlockHitResult hitResult) {
+    protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos,
+                                               Player player, BlockHitResult hitResult) {
         return InteractionResult.PASS;
     }
 
     @Override
     protected ItemInteractionResult useItemOn(ItemStack stack, BlockState state, Level level, BlockPos pos,
-                                             Player player, InteractionHand hand, BlockHitResult hitResult) {
+                                              Player player, InteractionHand hand, BlockHitResult hitResult) {
         if (level.isClientSide())
             return ItemInteractionResult.SUCCESS;
 
@@ -213,11 +226,11 @@ public class SmartFluidInterfaceBlock extends HorizontalDirectionalBlock impleme
 
         IFluidHandler tankCapability;
 
-        // 特殊处理含水树叶
-        if (targetState.is(BlockTags.LEAVES) && 
-            targetState.hasProperty(BlockStateProperties.WATERLOGGED) &&
-            targetState.getValue(BlockStateProperties.WATERLOGGED)) {
-            tankCapability = new WaterloggedLeavesFluidHandler();
+        // 特殊处理含水树叶和含水铜格栅
+        if ((targetState.is(BlockTags.LEAVES) || isCopperGrate(targetState)) &&
+                targetState.hasProperty(BlockStateProperties.WATERLOGGED) &&
+                targetState.getValue(BlockStateProperties.WATERLOGGED)) {
+            tankCapability = new WaterloggedBlockFluidHandler();
         } else {
             tankCapability = level.getCapability(Capabilities.FluidHandler.BLOCK, targetPos, state.getValue(FACING));
             if (tankCapability == null)
@@ -349,14 +362,13 @@ public class SmartFluidInterfaceBlock extends HorizontalDirectionalBlock impleme
                     serverLevel.getChunkSource().blockChanged(targetPos);
             }
 
-            // 使用 copyWithAmount 而不是 withAmount
             return fluidStack.copyWithAmount(requiredAmount);
         }
 
         return FluidStack.EMPTY;
     }
 
-    private static class WaterloggedLeavesFluidHandler implements IFluidHandler {
+    private static class WaterloggedBlockFluidHandler implements IFluidHandler {
         private static final FluidStack WATER = new FluidStack(Fluids.WATER, 1000);
 
         @Override

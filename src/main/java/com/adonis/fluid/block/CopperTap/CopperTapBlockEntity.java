@@ -60,8 +60,23 @@ public class CopperTapBlockEntity extends SmartBlockEntity {
         // Add behaviors if needed
     }
 
-    // Internal class: Simulates waterlogged leaves as infinite water source
-    private static class WaterloggedLeavesFluidHandler implements IFluidHandler {
+    /**
+     * 检查是否是铜格栅（所有变种）
+     */
+    private boolean isCopperGrate(BlockState state) {
+        Block block = state.getBlock();
+        return block == Blocks.COPPER_GRATE ||
+                block == Blocks.EXPOSED_COPPER_GRATE ||
+                block == Blocks.WEATHERED_COPPER_GRATE ||
+                block == Blocks.OXIDIZED_COPPER_GRATE ||
+                block == Blocks.WAXED_COPPER_GRATE ||
+                block == Blocks.WAXED_EXPOSED_COPPER_GRATE ||
+                block == Blocks.WAXED_WEATHERED_COPPER_GRATE ||
+                block == Blocks.WAXED_OXIDIZED_COPPER_GRATE;
+    }
+
+    // Internal class: Simulates waterlogged blocks (leaves/copper grates) as infinite water source
+    private static class WaterloggedBlockFluidHandler implements IFluidHandler {
         private static final FluidStack WATER = new FluidStack(Fluids.WATER, 1000);
 
         @Override
@@ -107,11 +122,17 @@ public class CopperTapBlockEntity extends SmartBlockEntity {
     public void tick() {
         super.tick();
 
-        if (level == null || level.isClientSide)
+        if (level == null)
             return;
 
         BlockState state = getBlockState();
         boolean isOpen = state.getValue(BlockStateProperties.OPEN);
+
+        // 客户端粒子效果
+        if (level.isClientSide) {
+            spawnDrippingParticles(state, isOpen);
+            return;
+        }
 
         if (!isOpen) {
             if (!renderingFluid.isEmpty() || !pendingFluid.isEmpty()) {
@@ -210,10 +231,11 @@ public class CopperTapBlockEntity extends SmartBlockEntity {
 
         IFluidHandler sourceHandler = null;
 
-        if (sourceState.is(BlockTags.LEAVES)) {
+        // 检查是否是含水树叶或含水铜格栅
+        if (sourceState.is(BlockTags.LEAVES) || isCopperGrate(sourceState)) {
             if (sourceState.hasProperty(BlockStateProperties.WATERLOGGED) &&
                     sourceState.getValue(BlockStateProperties.WATERLOGGED)) {
-                sourceHandler = new WaterloggedLeavesFluidHandler();
+                sourceHandler = new WaterloggedBlockFluidHandler();
             } else {
                 if (!renderingFluid.isEmpty()) {
                     renderingFluid = FluidStack.EMPTY;
@@ -429,7 +451,8 @@ public class CopperTapBlockEntity extends SmartBlockEntity {
             if (sourceBlockPos != null && sourceDirection != null) {
                 BlockState sourceState = level.getBlockState(sourceBlockPos);
 
-                if (sourceState.is(BlockTags.LEAVES) &&
+                // 检查是否是含水树叶或含水铜格栅
+                if ((sourceState.is(BlockTags.LEAVES) || isCopperGrate(sourceState)) &&
                         sourceState.hasProperty(BlockStateProperties.WATERLOGGED) &&
                         sourceState.getValue(BlockStateProperties.WATERLOGGED) &&
                         pendingFluid.getFluid() == Fluids.WATER) {
@@ -562,10 +585,10 @@ public class CopperTapBlockEntity extends SmartBlockEntity {
     }
 
     private boolean tryFillContainer(IFluidHandler sourceHandler, BlockEntity targetEntity) {
-        IFluidHandler targetHandler = level.getCapability(Capabilities.FluidHandler.BLOCK, 
+        IFluidHandler targetHandler = level.getCapability(Capabilities.FluidHandler.BLOCK,
                 targetEntity.getBlockPos(), Direction.UP);
         if (targetHandler == null) {
-            targetHandler = level.getCapability(Capabilities.FluidHandler.BLOCK, 
+            targetHandler = level.getCapability(Capabilities.FluidHandler.BLOCK,
                     targetEntity.getBlockPos(), null);
         }
 
@@ -703,5 +726,86 @@ public class CopperTapBlockEntity extends SmartBlockEntity {
 
     public boolean hasFluidToRender() {
         return !renderingFluid.isEmpty();
+    }
+
+    /**
+     * 客户端：生成滴落粒子效果
+     * 条件：龙头开启 + 背后有流体源
+     */
+    private void spawnDrippingParticles(BlockState state, boolean isOpen) {
+        if (!isOpen)
+            return;
+
+        // 检查背后是否有流体源
+        if (!hasFluidSourceBehind(state))
+            return;
+
+        // 1/500 几率生成粒子
+        if (level.random.nextFloat() > 0.002f) // 0.002 = 1/500
+            return;
+
+        // 获取龙头方向和粒子生成位置
+        Direction facing = state.getValue(CopperTapBlock.FACING);
+        Vec3 centerPos = Vec3.atCenterOf(worldPosition);
+
+        // 在龙头出口处生成粒子（稍微偏移到前方和下方）
+        Vec3 particlePos = centerPos
+                .relative(facing, 0.2) // 向前偏移
+                .add(0, -0.25, 0);     // 向下偏移
+
+        // 添加随机偏移，模拟管道边缘效果
+        double offsetX = (level.random.nextDouble() - 0.5) * 0.15;
+        double offsetZ = (level.random.nextDouble() - 0.5) * 0.15;
+
+        particlePos = particlePos.add(offsetX, 0, offsetZ);
+
+        // 生成滴水粒子
+        level.addParticle(
+                net.minecraft.core.particles.ParticleTypes.DRIPPING_WATER,
+                particlePos.x,
+                particlePos.y,
+                particlePos.z,
+                0, 0, 0
+        );
+    }
+
+    /**
+     * 检查龙头背后是否有流体源
+     * 包括：流体容器、含水树叶、含水铜格栅
+     */
+    private boolean hasFluidSourceBehind(BlockState state) {
+        Direction attached = state.getValue(CopperTapBlock.FACING);
+        BlockPos sourcePos = worldPosition.relative(attached.getOpposite());
+        BlockState sourceState = level.getBlockState(sourcePos);
+
+        // 检查是否是含水树叶或含水铜格栅
+        if (sourceState.is(BlockTags.LEAVES) || isCopperGrate(sourceState)) {
+            return sourceState.hasProperty(BlockStateProperties.WATERLOGGED) &&
+                    sourceState.getValue(BlockStateProperties.WATERLOGGED);
+        }
+
+        // 检查是否是流体容器
+        BlockEntity sourceEntity = level.getBlockEntity(sourcePos);
+        if (sourceEntity == null) {
+            return false;
+        }
+
+        IFluidHandler handler = level.getCapability(Capabilities.FluidHandler.BLOCK, sourcePos, attached);
+        if (handler == null) {
+            handler = level.getCapability(Capabilities.FluidHandler.BLOCK, sourcePos, null);
+        }
+
+        if (handler == null) {
+            return false;
+        }
+
+        // 检查是否有任何流体
+        for (int i = 0; i < handler.getTanks(); i++) {
+            if (!handler.getFluidInTank(i).isEmpty()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

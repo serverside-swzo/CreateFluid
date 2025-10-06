@@ -8,6 +8,8 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.tags.BlockTags;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
@@ -30,6 +32,21 @@ public class FluidInterfaceBlockEntity extends SmartBlockEntity {
     @Override
     public void addBehaviours(List<BlockEntityBehaviour> behaviours) {
         // 流体接口不需要额外的行为
+    }
+
+    /**
+     * 检查是否是铜格栅（所有变种）
+     */
+    private boolean isCopperGrate(BlockState state) {
+        Block block = state.getBlock();
+        return block == Blocks.COPPER_GRATE ||
+                block == Blocks.EXPOSED_COPPER_GRATE ||
+                block == Blocks.WEATHERED_COPPER_GRATE ||
+                block == Blocks.OXIDIZED_COPPER_GRATE ||
+                block == Blocks.WAXED_COPPER_GRATE ||
+                block == Blocks.WAXED_EXPOSED_COPPER_GRATE ||
+                block == Blocks.WAXED_WEATHERED_COPPER_GRATE ||
+                block == Blocks.WAXED_OXIDIZED_COPPER_GRATE;
     }
 
     /**
@@ -94,16 +111,16 @@ public class FluidInterfaceBlockEntity extends SmartBlockEntity {
                         return targetHandler;
                     }
 
-                    // 特殊处理含水树叶
+                    // 特殊处理含水树叶和含水铜格栅
                     BlockState state = be.getBlockState();
                     Direction attachedDirection = state.getValue(FluidInterfaceBlock.FACING).getOpposite();
                     BlockPos targetPos = be.worldPosition.relative(attachedDirection);
                     BlockState targetState = be.level.getBlockState(targetPos);
 
-                    if (targetState.is(BlockTags.LEAVES) &&
+                    if ((targetState.is(BlockTags.LEAVES) || be.isCopperGrate(targetState)) &&
                             targetState.hasProperty(BlockStateProperties.WATERLOGGED) &&
                             targetState.getValue(BlockStateProperties.WATERLOGGED)) {
-                        return new WaterloggedLeavesFluidHandler();
+                        return new WaterloggedBlockFluidHandler();
                     }
 
                     return null;
@@ -112,9 +129,9 @@ public class FluidInterfaceBlockEntity extends SmartBlockEntity {
     }
 
     /**
-     * 内部类：模拟含水树叶作为无限水源
+     * 内部类：模拟含水方块（树叶/铜格栅）作为无限水源
      */
-    private static class WaterloggedLeavesFluidHandler implements IFluidHandler {
+    private static class WaterloggedBlockFluidHandler implements IFluidHandler {
         private static final FluidStack WATER = new FluidStack(Fluids.WATER, 1000);
 
         @Override
@@ -134,12 +151,12 @@ public class FluidInterfaceBlockEntity extends SmartBlockEntity {
 
         @Override
         public boolean isFluidValid(int tank, FluidStack stack) {
-            return false; // 不能往树叶里填充流体
+            return false; // 不能往含水方块里填充流体
         }
 
         @Override
         public int fill(FluidStack resource, FluidAction action) {
-            return 0; // 不能往树叶里填充流体
+            return 0; // 不能往含水方块里填充流体
         }
 
         @Override

@@ -106,12 +106,25 @@ public class FluidInterfaceBlock extends HorizontalDirectionalBlock implements I
         return getShape(state, level, pos, context);
     }
 
-    // 检查方块是否有流体存储能力 - 支持树叶
+    // 检查是否是铜格栅（所有变种）
+    private boolean isCopperGrate(BlockState state) {
+        Block block = state.getBlock();
+        return block == Blocks.COPPER_GRATE ||
+                block == Blocks.EXPOSED_COPPER_GRATE ||
+                block == Blocks.WEATHERED_COPPER_GRATE ||
+                block == Blocks.OXIDIZED_COPPER_GRATE ||
+                block == Blocks.WAXED_COPPER_GRATE ||
+                block == Blocks.WAXED_EXPOSED_COPPER_GRATE ||
+                block == Blocks.WAXED_WEATHERED_COPPER_GRATE ||
+                block == Blocks.WAXED_OXIDIZED_COPPER_GRATE;
+    }
+
+    // 检查方块是否有流体存储能力 - 支持树叶和铜格栅
     private boolean hasFluidCapability(Level level, BlockPos pos, Direction fromDirection) {
         BlockState blockState = level.getBlockState(pos);
 
-        // 检查是否是树叶（树叶可以作为无限水源）
-        if (blockState.is(BlockTags.LEAVES)) {
+        // 检查是否是树叶或铜格栅（都可以作为无限水源）
+        if (blockState.is(BlockTags.LEAVES) || isCopperGrate(blockState)) {
             return true;
         }
 
@@ -161,8 +174,8 @@ public class FluidInterfaceBlock extends HorizontalDirectionalBlock implements I
         BlockPos attachedPos = pos.relative(direction.getOpposite());
         BlockState attachedState = level.getBlockState(attachedPos);
 
-        // 如果背后是树叶，可以生存
-        if (attachedState.is(BlockTags.LEAVES)) {
+        // 如果背后是树叶或铜格栅，可以生存
+        if (attachedState.is(BlockTags.LEAVES) || isCopperGrate(attachedState)) {
             return true;
         }
 
@@ -220,11 +233,11 @@ public class FluidInterfaceBlock extends HorizontalDirectionalBlock implements I
 
         IFluidHandler tankCapability;
 
-        // 特殊处理：如果是含水树叶，创建虚拟的无限水源处理器
-        if (targetState.is(BlockTags.LEAVES) &&
+        // 特殊处理：如果是含水树叶或含水铜格栅，创建虚拟的无限水源处理器
+        if ((targetState.is(BlockTags.LEAVES) || isCopperGrate(targetState)) &&
                 targetState.hasProperty(BlockStateProperties.WATERLOGGED) &&
                 targetState.getValue(BlockStateProperties.WATERLOGGED)) {
-            tankCapability = new WaterloggedLeavesFluidHandler();
+            tankCapability = new WaterloggedBlockFluidHandler();
         } else {
             // 正常获取流体能力
             tankCapability = level.getCapability(Capabilities.FluidHandler.BLOCK, targetPos, state.getValue(FACING));
@@ -282,7 +295,6 @@ public class FluidInterfaceBlock extends HorizontalDirectionalBlock implements I
         if (level.isClientSide)
             return fluidStack;
 
-        // 根据参考代码的逻辑
         ItemStack copy = stack.copy();
         result = GenericItemEmptying.emptyItem(level, copy, false);
         ItemStack resultItem = result.getSecond();
@@ -347,7 +359,6 @@ public class FluidInterfaceBlock extends HorizontalDirectionalBlock implements I
                     serverLevel.getChunkSource().blockChanged(targetPos);
             }
 
-            // 使用 copyWithAmount 而不是 withAmount
             return fluidStack.copyWithAmount(requiredAmount);
         }
 
@@ -355,9 +366,9 @@ public class FluidInterfaceBlock extends HorizontalDirectionalBlock implements I
     }
 
     /**
-     * 内部类：模拟含水树叶作为无限水源
+     * 内部类：模拟含水方块（树叶/铜格栅）作为无限水源
      */
-    private static class WaterloggedLeavesFluidHandler implements IFluidHandler {
+    private static class WaterloggedBlockFluidHandler implements IFluidHandler {
         private static final FluidStack WATER = new FluidStack(Fluids.WATER, 1000);
 
         @Override
@@ -377,12 +388,12 @@ public class FluidInterfaceBlock extends HorizontalDirectionalBlock implements I
 
         @Override
         public boolean isFluidValid(int tank, FluidStack stack) {
-            return false; // 不能往树叶里填充流体
+            return false; // 不能往含水方块里填充流体
         }
 
         @Override
         public int fill(FluidStack resource, FluidAction action) {
-            return 0; // 不能往树叶里填充流体
+            return 0; // 不能往含水方块里填充流体
         }
 
         @Override

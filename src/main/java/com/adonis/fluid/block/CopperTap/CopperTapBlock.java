@@ -124,6 +124,19 @@ public class CopperTapBlock extends HorizontalDirectionalBlock implements IBE<Co
         return getShape(state, level, pos, context);
     }
 
+    // 检查是否是铜格栅（所有变种）
+    private boolean isCopperGrate(BlockState state) {
+        Block block = state.getBlock();
+        return block == Blocks.COPPER_GRATE ||
+                block == Blocks.EXPOSED_COPPER_GRATE ||
+                block == Blocks.WEATHERED_COPPER_GRATE ||
+                block == Blocks.OXIDIZED_COPPER_GRATE ||
+                block == Blocks.WAXED_COPPER_GRATE ||
+                block == Blocks.WAXED_EXPOSED_COPPER_GRATE ||
+                block == Blocks.WAXED_WEATHERED_COPPER_GRATE ||
+                block == Blocks.WAXED_OXIDIZED_COPPER_GRATE;
+    }
+
     // 使用 useItemOn 代替 use，仿照渔业模组
     @Override
     public ItemInteractionResult useItemOn(ItemStack stack, BlockState state, Level level, BlockPos pos,
@@ -168,7 +181,8 @@ public class CopperTapBlock extends HorizontalDirectionalBlock implements IBE<Co
     private boolean hasFluidCapability(Level level, BlockPos pos, Direction fromDirection) {
         BlockState blockState = level.getBlockState(pos);
 
-        if (blockState.is(BlockTags.LEAVES)) {
+        // 检查是否是树叶或铜格栅
+        if (blockState.is(BlockTags.LEAVES) || isCopperGrate(blockState)) {
             return true;
         }
 
@@ -222,7 +236,8 @@ public class CopperTapBlock extends HorizontalDirectionalBlock implements IBE<Co
         BlockPos attachedPos = pos.relative(direction.getOpposite());
         BlockState attachedState = level.getBlockState(attachedPos);
 
-        if (attachedState.is(BlockTags.LEAVES)) {
+        // 如果背后是树叶或铜格栅，可以生存
+        if (attachedState.is(BlockTags.LEAVES) || isCopperGrate(attachedState)) {
             return true;
         }
 
