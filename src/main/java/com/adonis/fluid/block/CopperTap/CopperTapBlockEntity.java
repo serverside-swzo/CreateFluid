@@ -9,6 +9,8 @@ import com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
+import net.minecraft.core.particles.ParticleOptions;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
@@ -22,6 +24,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.material.Fluid;
 import net.minecraft.world.level.material.Fluids;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.capabilities.Capabilities;
@@ -45,6 +48,12 @@ public class CopperTapBlockEntity extends SmartBlockEntity {
     private Direction sourceDirection = null;
     private BlockPos sourceBlockPos = null;
     private int continuousProcessingDelay = 0;
+
+    // 滴水效果相关
+    private boolean shouldDrip = false;
+    private int dripTickCounter = 0;
+    private FluidStack dripFluid = FluidStack.EMPTY; // 专门用于滴水效果的流体
+    private static final int DRIP_INTERVAL = 25; // 每25tick滴一次水，约1.25秒
 
     private static final TagKey<Block> TAP_FILLABLE = TagKey.create(
             Registries.BLOCK,
@@ -122,31 +131,37 @@ public class CopperTapBlockEntity extends SmartBlockEntity {
     public void tick() {
         super.tick();
 
-        if (level == null)
+        if (level == null || level.isClientSide)
             return;
 
         BlockState state = getBlockState();
         boolean isOpen = state.getValue(BlockStateProperties.OPEN);
 
-        // 客户端粒子效果
-        if (level.isClientSide) {
-            spawnDrippingParticles(state, isOpen);
-            return;
-        }
-
         if (!isOpen) {
-            if (!renderingFluid.isEmpty() || !pendingFluid.isEmpty()) {
-                renderingFluid = FluidStack.EMPTY;
-                pendingFluid = FluidStack.EMPTY;
-                isFillingItem = false;
-                processingTicks = 0;
-                processingItem = ItemStack.EMPTY;
-                sourceDirection = null;
-                sourceBlockPos = null;
-                continuousProcessingDelay = 0;
-                notifyUpdate();
-            }
+            // 立即停止所有效果
+            boolean needsUpdate = !renderingFluid.isEmpty() || !pendingFluid.isEmpty() || shouldDrip;
+
+            renderingFluid = FluidStack.EMPTY;
+            pendingFluid = FluidStack.EMPTY;
+            dripFluid = FluidStack.EMPTY;
+            isFillingItem = false;
+            processingTicks = 0;
+            processingItem = ItemStack.EMPTY;
+            sourceDirection = null;
+            sourceBlockPos = null;
+            continuousProcessingDelay = 0;
+            shouldDrip = false;
+            dripTickCounter = 0;
             transferCooldown = 0;
+
+            if (needsUpdate) {
+                notifyUpdate();
+                // 强制立即同步到客户端
+                setChanged();
+                if (level != null && !level.isClientSide) {
+                    level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+                }
+            }
             return;
         }
 
@@ -179,6 +194,15 @@ public class CopperTapBlockEntity extends SmartBlockEntity {
         if (transferCooldown == 0) {
             tryTransferFluid();
         }
+
+        // 处理滴水效果
+        if (shouldDrip) {
+            dripTickCounter++;
+            if (dripTickCounter >= DRIP_INTERVAL) {
+                dripTickCounter = 0;
+                spawnDripParticle();
+            }
+        }
     }
 
     public void onTargetChanged() {
@@ -187,6 +211,9 @@ public class CopperTapBlockEntity extends SmartBlockEntity {
         }
         transferCooldown = 0;
         continuousProcessingDelay = 0;
+        shouldDrip = false;
+        dripTickCounter = 0;
+        dripFluid = FluidStack.EMPTY;
         notifyUpdate();
     }
 
@@ -237,8 +264,10 @@ public class CopperTapBlockEntity extends SmartBlockEntity {
                     sourceState.getValue(BlockStateProperties.WATERLOGGED)) {
                 sourceHandler = new WaterloggedBlockFluidHandler();
             } else {
-                if (!renderingFluid.isEmpty()) {
+                if (!renderingFluid.isEmpty() || shouldDrip) {
                     renderingFluid = FluidStack.EMPTY;
+                    shouldDrip = false;
+                    dripTickCounter = 0;
                     notifyUpdate();
                 }
                 return;
@@ -246,8 +275,10 @@ public class CopperTapBlockEntity extends SmartBlockEntity {
         } else {
             BlockEntity sourceEntity = level.getBlockEntity(sourcePos);
             if (sourceEntity == null) {
-                if (!renderingFluid.isEmpty()) {
+                if (!renderingFluid.isEmpty() || shouldDrip) {
                     renderingFluid = FluidStack.EMPTY;
+                    shouldDrip = false;
+                    dripTickCounter = 0;
                     notifyUpdate();
                 }
                 return;
@@ -260,8 +291,22 @@ public class CopperTapBlockEntity extends SmartBlockEntity {
         }
 
         if (sourceHandler == null) {
-            if (!renderingFluid.isEmpty()) {
+            if (!renderingFluid.isEmpty() || shouldDrip) {
                 renderingFluid = FluidStack.EMPTY;
+                shouldDrip = false;
+                dripTickCounter = 0;
+                notifyUpdate();
+            }
+            return;
+        }
+
+        // 检查源是否有流体
+        FluidStack availableFluid = sourceHandler.drain(1, IFluidHandler.FluidAction.SIMULATE);
+        if (availableFluid.isEmpty()) {
+            if (!renderingFluid.isEmpty() || shouldDrip) {
+                renderingFluid = FluidStack.EMPTY;
+                shouldDrip = false;
+                dripTickCounter = 0;
                 notifyUpdate();
             }
             return;
@@ -272,11 +317,99 @@ public class CopperTapBlockEntity extends SmartBlockEntity {
 
         if (success) {
             transferCooldown = 5;
+            // 成功传输，停止滴水
+            if (shouldDrip) {
+                shouldDrip = false;
+                dripTickCounter = 0;
+                dripFluid = FluidStack.EMPTY;
+                notifyUpdate();
+            }
         } else {
-            if (!renderingFluid.isEmpty()) {
+            // 无法传输但有流体，开始滴水
+            transferCooldown = 10;
+
+            boolean wasNotDripping = !shouldDrip;
+            boolean fluidChanged = false;
+
+            // 总是更新流体信息，以便实时反映流体类型的变化
+            FluidStack newDripFluid = availableFluid.copy();
+            newDripFluid.setAmount(Math.min(newDripFluid.getAmount(), 250));
+
+            // 检查流体是否发生了变化
+            if (!dripFluid.isEmpty() && !FluidStack.isSameFluidSameComponents(dripFluid, newDripFluid)) {
+                fluidChanged = true;
+            }
+
+            dripFluid = newDripFluid;
+            shouldDrip = true;
+
+            // 如果流体改变了，重置计数器让新流体粒子立即出现
+            if (fluidChanged) {
+                dripTickCounter = DRIP_INTERVAL - 1; // 下一个tick就会触发
+            }
+
+            if (!renderingFluid.isEmpty() || wasNotDripping || fluidChanged) {
                 renderingFluid = FluidStack.EMPTY;
                 notifyUpdate();
             }
+        }
+    }
+
+    /**
+     * 生成滴水粒子效果 - 模仿滴水石锥的效果
+     */
+    private void spawnDripParticle() {
+        if (level == null || !(level instanceof ServerLevel serverLevel))
+            return;
+
+        if (dripFluid.isEmpty())
+            return;
+
+        // 使用 Create 的 FluidFX 获取流体粒子
+        ParticleOptions fluidParticle = com.simibubi.create.content.fluids.FluidFX.getFluidParticle(dripFluid);
+
+        // 龙头出口位置
+        Vec3 spoutPos = Vec3.atCenterOf(worldPosition).add(0, -0.3, 0);
+
+        // 阶段1：悬挂在出水口的水滴，缓慢向下生长
+        // 在出水口附近生成多个粒子，模拟水滴逐渐变大
+        for (int i = 0; i < 2; i++) {
+            double yOffset = -0.05 * i; // 水滴向下延伸
+            serverLevel.sendParticles(
+                    fluidParticle,
+                    spoutPos.x, spoutPos.y + yOffset, spoutPos.z,
+                    1,
+                    0.005, 0.0, 0.005, // 几乎不扩散
+                    0.005 // 非常缓慢向下
+            );
+        }
+
+        // 阶段2：脱离出水口的水滴，自由落体
+        // 在稍微下方的位置生成，给予较大的向下速度
+        serverLevel.sendParticles(
+                fluidParticle,
+                spoutPos.x, spoutPos.y - 0.15, spoutPos.z,
+                1,
+                0.01, 0.0, 0.01,
+                0.15 // 较大的向下速度，模拟自由落体
+        );
+
+        // 阶段3：落下途中的水滴
+        serverLevel.sendParticles(
+                fluidParticle,
+                spoutPos.x, spoutPos.y - 0.3, spoutPos.z,
+                1,
+                0.015, 0.0, 0.015,
+                0.25 // 更大的向下速度
+        );
+
+        // 偶尔播放滴水声音
+        if (level.random.nextFloat() < 0.2f) {
+            level.playSound(null, worldPosition,
+                    net.minecraft.sounds.SoundEvents.POINTED_DRIPSTONE_DRIP_WATER,
+                    net.minecraft.sounds.SoundSource.BLOCKS,
+                    0.2f,
+                    0.8f + level.random.nextFloat() * 0.4f);
         }
     }
 
@@ -654,11 +787,18 @@ public class CopperTapBlockEntity extends SmartBlockEntity {
         if (!pendingFluid.isEmpty()) {
             tag.put("PendingFluid", pendingFluid.save(registries));
         }
+        if (!dripFluid.isEmpty()) {
+            tag.put("DripFluid", dripFluid.save(registries));
+        }
 
         tag.putBoolean("IsFillingItem", isFillingItem);
         tag.putInt("ProcessingTicks", processingTicks);
         tag.putInt("TransferCooldown", transferCooldown);
         tag.putInt("ContinuousProcessingDelay", continuousProcessingDelay);
+
+        // 保存滴水状态
+        tag.putBoolean("ShouldDrip", shouldDrip);
+        tag.putInt("DripTickCounter", dripTickCounter);
 
         if (!processingItem.isEmpty()) {
             tag.put("ProcessingItem", processingItem.save(registries));
@@ -688,10 +828,20 @@ public class CopperTapBlockEntity extends SmartBlockEntity {
             pendingFluid = FluidStack.EMPTY;
         }
 
+        if (tag.contains("DripFluid")) {
+            dripFluid = FluidStack.parse(registries, tag.getCompound("DripFluid")).orElse(FluidStack.EMPTY);
+        } else {
+            dripFluid = FluidStack.EMPTY;
+        }
+
         isFillingItem = tag.getBoolean("IsFillingItem");
         processingTicks = tag.getInt("ProcessingTicks");
         transferCooldown = tag.getInt("TransferCooldown");
         continuousProcessingDelay = tag.getInt("ContinuousProcessingDelay");
+
+        // 读取滴水状态
+        shouldDrip = tag.getBoolean("ShouldDrip");
+        dripTickCounter = tag.getInt("DripTickCounter");
 
         if (tag.contains("ProcessingItem")) {
             processingItem = ItemStack.parse(registries, tag.getCompound("ProcessingItem")).orElse(ItemStack.EMPTY);
@@ -728,84 +878,7 @@ public class CopperTapBlockEntity extends SmartBlockEntity {
         return !renderingFluid.isEmpty();
     }
 
-    /**
-     * 客户端：生成滴落粒子效果
-     * 条件：龙头开启 + 背后有流体源
-     */
-    private void spawnDrippingParticles(BlockState state, boolean isOpen) {
-        if (!isOpen)
-            return;
-
-        // 检查背后是否有流体源
-        if (!hasFluidSourceBehind(state))
-            return;
-
-        // 1/500 几率生成粒子
-        if (level.random.nextFloat() > 0.002f) // 0.002 = 1/500
-            return;
-
-        // 获取龙头方向和粒子生成位置
-        Direction facing = state.getValue(CopperTapBlock.FACING);
-        Vec3 centerPos = Vec3.atCenterOf(worldPosition);
-
-        // 在龙头出口处生成粒子（稍微偏移到前方和下方）
-        Vec3 particlePos = centerPos
-                .relative(facing, 0.2) // 向前偏移
-                .add(0, -0.25, 0);     // 向下偏移
-
-        // 添加随机偏移，模拟管道边缘效果
-        double offsetX = (level.random.nextDouble() - 0.5) * 0.15;
-        double offsetZ = (level.random.nextDouble() - 0.5) * 0.15;
-
-        particlePos = particlePos.add(offsetX, 0, offsetZ);
-
-        // 生成滴水粒子
-        level.addParticle(
-                net.minecraft.core.particles.ParticleTypes.DRIPPING_WATER,
-                particlePos.x,
-                particlePos.y,
-                particlePos.z,
-                0, 0, 0
-        );
-    }
-
-    /**
-     * 检查龙头背后是否有流体源
-     * 包括：流体容器、含水树叶、含水铜格栅
-     */
-    private boolean hasFluidSourceBehind(BlockState state) {
-        Direction attached = state.getValue(CopperTapBlock.FACING);
-        BlockPos sourcePos = worldPosition.relative(attached.getOpposite());
-        BlockState sourceState = level.getBlockState(sourcePos);
-
-        // 检查是否是含水树叶或含水铜格栅
-        if (sourceState.is(BlockTags.LEAVES) || isCopperGrate(sourceState)) {
-            return sourceState.hasProperty(BlockStateProperties.WATERLOGGED) &&
-                    sourceState.getValue(BlockStateProperties.WATERLOGGED);
-        }
-
-        // 检查是否是流体容器
-        BlockEntity sourceEntity = level.getBlockEntity(sourcePos);
-        if (sourceEntity == null) {
-            return false;
-        }
-
-        IFluidHandler handler = level.getCapability(Capabilities.FluidHandler.BLOCK, sourcePos, attached);
-        if (handler == null) {
-            handler = level.getCapability(Capabilities.FluidHandler.BLOCK, sourcePos, null);
-        }
-
-        if (handler == null) {
-            return false;
-        }
-
-        // 检查是否有任何流体
-        for (int i = 0; i < handler.getTanks(); i++) {
-            if (!handler.getFluidInTank(i).isEmpty()) {
-                return true;
-            }
-        }
-
-        return false;
+    public boolean shouldDrip() {
+        return shouldDrip;
     }
 }

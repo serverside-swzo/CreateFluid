@@ -147,7 +147,7 @@ public class FluidInteractionPoint {
         return state.getBlock() instanceof net.minecraft.world.level.block.BeehiveBlock;
     }
 
-    private static boolean isCauldron(BlockState state) {
+    public static boolean isCauldron(BlockState state) {
         return state.is(Blocks.CAULDRON) ||
                 state.is(Blocks.WATER_CAULDRON) ||
                 state.is(Blocks.LAVA_CAULDRON) ||
