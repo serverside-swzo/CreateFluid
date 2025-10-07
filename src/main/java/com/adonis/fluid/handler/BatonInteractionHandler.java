@@ -111,7 +111,7 @@ public class BatonInteractionHandler {
         }
     }
 
-    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    @SubscribeEvent(priority = EventPriority.HIGH)
     public static void onRightClick(PlayerInteractEvent.RightClickBlock event) {
         Player player = event.getEntity();
         ItemStack heldItem = player.getMainHandItem();
@@ -125,17 +125,35 @@ public class BatonInteractionHandler {
         BlockState state = level.getBlockState(pos);
         boolean sneaking = player.isShiftKeyDown();
 
-        event.setCanceled(true);
-        event.setCancellationResult(InteractionResult.SUCCESS);
-
+        // 后续的处理仍然只在客户端
         if (!level.isClientSide) {
+            BlockEntity be = level.getBlockEntity(pos);
+
+            // 这些方块在服务端也要取消事件
+            if (be instanceof ArmBlockEntity ||
+                    be instanceof PipetteBlockEntity ||
+                    be instanceof EjectorBlockEntity ||
+                    state.getBlock() instanceof RoseQuartzLampBlock) {
+                event.setCanceled(true);
+                event.setCancellationResult(InteractionResult.SUCCESS);
+            }
+
+            // 检查是否可以作为交互点，服务端也要阻止
+            if (canBeInteractionPoint(level, pos, state)) {
+                event.setCanceled(true);
+                event.setCancellationResult(InteractionResult.SUCCESS);
+            }
+
             return;
         }
 
+        // 以下是客户端处理逻辑
         BlockEntity be = level.getBlockEntity(pos);
 
+        // 处理普通置物台（借鉴1.20.1的成功经验）
         if (com.simibubi.create.AllBlocks.DEPOT.has(state)) {
             if (!(be instanceof EjectorBlockEntity)) {
+                // 普通置物台，在选择模式下作为交互点
                 if (!sneaking && isInSelectionMode()) {
                     if (selectionType == SelectionType.ARM) {
                         handleArmPointInteraction(level, pos, state, player);
@@ -144,39 +162,73 @@ public class BatonInteractionHandler {
                     } else if (selectionType == SelectionType.EJECTOR) {
                         handleEjectorTargetSelection(pos, player, level);
                     }
+                    event.setCanceled(true);
+                    event.setCancellationResult(InteractionResult.SUCCESS);
                 }
                 return;
             }
         }
 
+        // 处理石英灯
         if (state.getBlock() instanceof RoseQuartzLampBlock) {
-            PacketDistributor.sendToServer(new QuartzLampTogglePacket(pos));
+            PacketDistributor.sendToServer(new QuartzLampTogglePacket(pos));  // 修改：使用PacketDistributor
             level.playLocalSound(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5,
                     SoundEvents.LEVER_CLICK, SoundSource.BLOCKS, 0.3f, 1.0f, false);
+            event.setCanceled(true);
+            event.setCancellationResult(InteractionResult.SUCCESS);
             return;
         }
 
+        // 处理动力臂
         if (be instanceof ArmBlockEntity arm) {
             if (sneaking) {
+                // 潜行右键：切换跳舞模式
                 handleArmDanceToggle(arm, player, level);
             } else {
+                // 普通右键：进入选择模式
                 handleArmTargetClick(be, pos, player, level);
             }
+            event.setCanceled(true);
+            event.setCancellationResult(InteractionResult.SUCCESS);
             return;
         }
 
+        // 处理移液器
         if (be instanceof PipetteBlockEntity) {
             if (!sneaking) {
+                // 只有普通右键才有效果
                 handlePipetteTargetClick(be, pos, player, level);
+                event.setCanceled(true);
+                event.setCancellationResult(InteractionResult.SUCCESS);
             }
+            // 潜行右键无效果
             return;
         }
 
+        // 处理弹射置物台
         if (be instanceof EjectorBlockEntity) {
-            handleEjectorClick(be, pos, player, level, sneaking);
-            return;
+            // 关键修改：在ARM或PIPETTE模式下，弹射置物台作为交互点
+            if (selectionType == SelectionType.ARM || selectionType == SelectionType.PIPETTE) {
+                if (!sneaking) {
+                    if (selectionType == SelectionType.ARM) {
+                        handleArmPointInteraction(level, pos, state, player);
+                    } else {
+                        handlePipettePointInteraction(level, pos, state, player);
+                    }
+                    event.setCanceled(true);
+                    event.setCancellationResult(InteractionResult.SUCCESS);
+                    return;
+                }
+            } else {
+                // 只在NONE或EJECTOR模式下才进入弹射置物台选择
+                handleEjectorClick(be, pos, player, level, sneaking);
+                event.setCanceled(true);
+                event.setCancellationResult(InteractionResult.SUCCESS);
+                return;
+            }
         }
 
+        // 在选择模式下点击其他方块
         if (isInSelectionMode()) {
             if (!sneaking) {
                 if (selectionType == SelectionType.EJECTOR && selectedEjectorPos != null) {
@@ -186,8 +238,22 @@ public class BatonInteractionHandler {
                 } else if (selectionType == SelectionType.PIPETTE) {
                     handlePipettePointInteraction(level, pos, state, player);
                 }
+                event.setCanceled(true);
+                event.setCancellationResult(InteractionResult.SUCCESS);
             }
         }
+    }
+
+    private static boolean canBeInteractionPoint(Level level, BlockPos pos, BlockState state) {
+        // 检查动力臂交互点
+        if (com.simibubi.create.content.kinetics.mechanicalArm.ArmInteractionPoint.isInteractable(level, pos, state)) {
+            return true;
+        }
+        // 检查移液器交互点
+        if (com.adonis.fluid.content.pipette.FluidInteractionPoint.create(level, pos, state) != null) {
+            return true;
+        }
+        return false;
     }
 
     private static void handleArmDanceToggle(ArmBlockEntity arm, Player player, Level level) {
@@ -217,18 +283,20 @@ public class BatonInteractionHandler {
     }
 
     private static void handleEjectorClick(BlockEntity be, BlockPos pos, Player player, Level level, boolean sneaking) {
+        // 情况1：已经在对这个弹射置物台进行选取，再次点击确认
         if (selectionType == SelectionType.EJECTOR && selectedEjectorPos != null && selectedEjectorPos.equals(pos)) {
             flushEjectorSettings(pos, player, level);
             return;
         }
 
+        // 情况2：已经在对另一个弹射置物台进行选取，这次点击作为选择目标点
         if (selectionType == SelectionType.EJECTOR && selectedEjectorPos != null && !selectedEjectorPos.equals(pos)) {
             handleEjectorTargetSelection(pos, player, level);
             return;
         }
 
-        if (selectionType != SelectionType.EJECTOR) {
-            cancelSelection();
+        // 情况3：只有当前不在任何选择模式时，才开始弹射置物台选取
+        if (selectionType == SelectionType.NONE) {
             selectionType = SelectionType.EJECTOR;
             selectedEjectorPos = pos;
             launcher = null;

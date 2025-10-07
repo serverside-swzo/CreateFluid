@@ -17,7 +17,7 @@ public class CFCreativeTab {
             () -> CreativeModeTab.builder()
                     .title(Component.translatable("itemGroup.createfluid.main"))
                     .withTabsBefore(CreativeModeTabs.SPAWN_EGGS)
-                    .icon(() -> CFBlocks.COPPER_TAP.asStack())
+                    .icon(() -> CFItems.BATON.asStack())
                     .displayItems((parameters, output) -> {
                         // 手动添加方块
                         output.accept(CFItems.BATON);

@@ -51,7 +51,7 @@ public class FluidInteractionPoint {
     @Nullable
     public static FluidInteractionPoint create(Level level, BlockPos pos, BlockState state) {
         // Priority check for depot
-        if (AllBlocks.DEPOT.has(state)) {
+        if (AllBlocks.DEPOT.has(state) || AllBlocks.WEIGHTED_EJECTOR.has(state)) {
             return new DepotFluidInteractionPoint(level, pos, state);
         }
 
@@ -117,8 +117,7 @@ public class FluidInteractionPoint {
             return com.simibubi.create.content.kinetics.belt.BeltBlock.canTransportObjects(state);
         }
 
-        // Depot support
-        if (AllBlocks.DEPOT.has(state)) {
+        if (AllBlocks.DEPOT.has(state) || AllBlocks.WEIGHTED_EJECTOR.has(state)) {
             return true;
         }
 

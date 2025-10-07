@@ -65,10 +65,10 @@ public class PipetteBlockEntity extends KineticBlockEntity
     public List<FluidInteractionPoint> inputs = new ArrayList<>();
     public List<FluidInteractionPoint> outputs = new ArrayList<>();
     public ListTag interactionPointTag = null;
-    float chasedPointProgress;
-    int chasedPointIndex;
+    public float chasedPointProgress;
+    public int chasedPointIndex;
     public FluidStack heldFluid;
-    Phase phase;
+    public Phase phase;
     public boolean goggles;
     PipetteAngleTarget previousTarget;
     public LerpedFloat lowerArmAngle;

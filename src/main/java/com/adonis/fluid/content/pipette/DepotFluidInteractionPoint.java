@@ -25,7 +25,8 @@ public class DepotFluidInteractionPoint extends FluidInteractionPoint {
         }
 
         BlockState currentState = level.getBlockState(pos);
-        if (!com.simibubi.create.AllBlocks.DEPOT.has(currentState)) {
+        if (!com.simibubi.create.AllBlocks.DEPOT.has(currentState) &&
+                !com.simibubi.create.AllBlocks.WEIGHTED_EJECTOR.has(currentState)) {
             return false;
         }
 
