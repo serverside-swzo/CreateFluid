@@ -1,9 +1,8 @@
+// PipetteInteractionPointSyncPacket.java
 package com.adonis.fluid.packet;
 
 import com.adonis.fluid.CreateFluid;
-import com.adonis.fluid.block.Pipette.PipetteBlockEntity;
 import io.netty.buffer.ByteBuf;
-import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -11,8 +10,8 @@ import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.entity.BlockEntity;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 public record PipetteInteractionPointSyncPacket(BlockPos pos, ListTag pointsTag) implements CustomPacketPayload {
@@ -40,32 +39,11 @@ public record PipetteInteractionPointSyncPacket(BlockPos pos, ListTag pointsTag)
         return TYPE;
     }
 
-    // 使用实例方法
     public void handle(IPayloadContext context) {
         context.enqueueWork(() -> {
-            if (context.flow().isClientbound()) {
-                handleClient();
+            if (context.flow().isClientbound() && FMLEnvironment.dist == Dist.CLIENT) {
+                ClientPacketHandler.handlePipetteSync(this.pos, this.pointsTag);
             }
         });
-    }
-
-    private void handleClient() {
-        Level world = Minecraft.getInstance().level;
-        if (world == null) return;
-
-        BlockEntity be = world.getBlockEntity(this.pos);
-        if (!(be instanceof PipetteBlockEntity pipette)) return;
-
-        pipette.inputs.clear();
-        pipette.outputs.clear();
-
-        pipette.setInteractionPointTag(this.pointsTag);
-        pipette.setUpdateInteractionPoints(true);
-
-        // 立即初始化
-        pipette.forceInitInteractionPoints();
-
-        pipette.resetMovementState();
-        pipette.setChanged();
     }
 }

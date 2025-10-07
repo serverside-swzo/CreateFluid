@@ -14,6 +14,8 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
@@ -114,10 +116,11 @@ public record PipetteFluidPlacementPacket(ListTag pointsTag, BlockPos pos) imple
             return TYPE;
         }
 
+        // PipetteFluidPlacementPacket.java 中的 ClientBoundRequest
         public void handle(IPayloadContext context) {
             context.enqueueWork(() -> {
-                if (context.flow().isClientbound()) {
-                    handleClient();
+                if (context.flow().isClientbound() && FMLEnvironment.dist == Dist.CLIENT) {
+                    ClientPacketHandler.handlePipetteRequest(this.pos);
                 }
             });
         }

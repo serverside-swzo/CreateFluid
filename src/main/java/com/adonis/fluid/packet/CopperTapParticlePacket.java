@@ -51,6 +51,7 @@ public record CopperTapParticlePacket(Vec3 startPos, Vec3 endPos, FluidStack flu
         return TYPE;
     }
 
+    // CopperTapParticlePacket.java
     public void handle(IPayloadContext context) {
         context.enqueueWork(() -> {
             if (FMLEnvironment.dist == Dist.CLIENT) {
