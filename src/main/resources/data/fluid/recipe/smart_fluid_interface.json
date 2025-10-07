@@ -6,7 +6,7 @@
       "item": "fluid:fluid_interface"
     },
     "C": {
-      "tag": "forge:plates/brass"
+      "tag": "c:plates/brass"
     },
     "D": {
       "item": "create:electron_tube"
@@ -18,7 +18,7 @@
     " D "
   ],
   "result": {
-    "item": "fluid:smart_fluid_interface"
+    "id": "fluid:smart_fluid_interface"
   },
   "show_notification": true
 }

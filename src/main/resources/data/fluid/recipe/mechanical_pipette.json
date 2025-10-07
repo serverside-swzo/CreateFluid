@@ -3,7 +3,7 @@
   "category": "misc",
   "key": {
     "A": {
-      "tag": "forge:ingots/copper"
+      "tag": "c:ingots/copper"
     },
     "C": {
       "item": "create:brass_casing"
@@ -12,7 +12,7 @@
       "item": "create:precision_mechanism"
     },
     "L": {
-      "tag": "forge:plates/brass"
+      "tag": "c:plates/brass"
     }
   },
   "pattern": [
@@ -21,7 +21,7 @@
     "IC "
   ],
   "result": {
-    "item": "fluid:pipette"
+    "id": "fluid:pipette"
   },
   "show_notification": true
 }

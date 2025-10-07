@@ -3,17 +3,17 @@
   "category": "misc",
   "key": {
     "A": {
-      "tag": "forge:ingots/copper"
+      "tag": "c:ingots/copper"
     },
     "C": {
-      "tag": "forge:nuggets/copper"
+      "tag": "c:nuggets/copper"
     }
   },
   "pattern": [
     "AC"
   ],
   "result": {
-    "item": "fluid:fluid_interface"
+    "id": "fluid:fluid_interface"
   },
   "show_notification": true
 }
