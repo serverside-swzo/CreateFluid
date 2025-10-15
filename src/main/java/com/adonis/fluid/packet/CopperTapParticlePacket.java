@@ -1,17 +1,26 @@
 package com.adonis.fluid.packet;
 
+import com.adonis.fluid.CreateFluid;
+import net.minecraft.client.Minecraft;
+import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.fluids.FluidStack;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
-import com.adonis.fluid.CreateFluid;
 
-public record CopperTapParticlePacket(Vec3 startPos, Vec3 endPos, FluidStack fluid) implements CustomPacketPayload {
+public record CopperTapParticlePacket(ParticleType particleType, Vec3 startPos, Vec3 endPos,
+                                      FluidStack fluid) implements CustomPacketPayload {
+
+    public enum ParticleType {
+        STREAM, DRIP
+    }
 
     public static final Type<CopperTapParticlePacket> TYPE = new Type<>(CreateFluid.asResource("copper_tap_particle"));
 
@@ -22,6 +31,7 @@ public record CopperTapParticlePacket(Vec3 startPos, Vec3 endPos, FluidStack flu
             );
 
     public static CopperTapParticlePacket decode(RegistryFriendlyByteBuf buffer) {
+        ParticleType particleType = buffer.readEnum(ParticleType.class);
         Vec3 startPos = new Vec3(
                 buffer.readDouble(),
                 buffer.readDouble(),
@@ -33,10 +43,11 @@ public record CopperTapParticlePacket(Vec3 startPos, Vec3 endPos, FluidStack flu
                 buffer.readDouble()
         );
         FluidStack fluid = FluidStack.OPTIONAL_STREAM_CODEC.decode(buffer);
-        return new CopperTapParticlePacket(startPos, endPos, fluid);
+        return new CopperTapParticlePacket(particleType, startPos, endPos, fluid);
     }
 
     public void encode(RegistryFriendlyByteBuf buffer) {
+        buffer.writeEnum(particleType);
         buffer.writeDouble(startPos.x);
         buffer.writeDouble(startPos.y);
         buffer.writeDouble(startPos.z);
@@ -51,24 +62,25 @@ public record CopperTapParticlePacket(Vec3 startPos, Vec3 endPos, FluidStack flu
         return TYPE;
     }
 
-    // CopperTapParticlePacket.java
     public void handle(IPayloadContext context) {
         context.enqueueWork(() -> {
             if (FMLEnvironment.dist == Dist.CLIENT) {
-                ClientHandler.spawnParticles(startPos, endPos, fluid);
+                switch (particleType) {
+                    case STREAM -> ClientHandler.spawnStreamParticles(startPos, endPos, fluid);
+                    case DRIP -> ClientHandler.spawnDripEffect(startPos, fluid);
+                }
             }
         });
     }
 
     @OnlyIn(Dist.CLIENT)
     private static class ClientHandler {
-        private static void spawnParticles(Vec3 startPos, Vec3 endPos, FluidStack fluid) {
-            net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
-            net.minecraft.world.level.Level level = mc.level;
+        private static void spawnStreamParticles(Vec3 startPos, Vec3 endPos, FluidStack fluid) {
+            Minecraft mc = Minecraft.getInstance();
+            Level level = mc.level;
             if (level == null || fluid.isEmpty()) return;
 
-            net.minecraft.core.particles.ParticleOptions particle =
-                    com.simibubi.create.content.fluids.FluidFX.getFluidParticle(fluid);
+            ParticleOptions particle = com.simibubi.create.content.fluids.FluidFX.getFluidParticle(fluid);
 
             // Create fluid stream effect
             Vec3 flowDirection = endPos.subtract(startPos);
@@ -101,7 +113,25 @@ public record CopperTapParticlePacket(Vec3 startPos, Vec3 endPos, FluidStack flu
             }
         }
 
-        private static Vec3 offsetRandomly(Vec3 vec, net.minecraft.util.RandomSource random, float maxOffset) {
+        private static void spawnDripEffect(Vec3 spoutPos, FluidStack fluid) {
+            Minecraft mc = Minecraft.getInstance();
+            Level level = mc.level;
+            if (level == null || fluid.isEmpty()) return;
+
+            ParticleOptions fluidParticle = com.simibubi.create.content.fluids.FluidFX.getFluidParticle(fluid);
+
+            // Add a particle hanging from the tap
+            level.addParticle(fluidParticle,
+                    spoutPos.x, spoutPos.y, spoutPos.z,
+                    0, -0.05, 0);
+
+            // Add a particle falling down
+            Vec3 fallMotion = offsetRandomly(Vec3.ZERO, level.random, 0.02F);
+            level.addParticle(fluidParticle,
+                    spoutPos.x, spoutPos.y, spoutPos.z,
+                    fallMotion.x, -0.2, fallMotion.z);
+        }
+        private static Vec3 offsetRandomly(Vec3 vec, RandomSource random, float maxOffset) {
             return new Vec3(
                     vec.x + (random.nextFloat() - 0.5) * 2 * maxOffset,
                     vec.y + (random.nextFloat() - 0.5) * 2 * maxOffset,

@@ -9,8 +9,6 @@ import com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
-import net.minecraft.core.particles.ParticleOptions;
-import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
@@ -24,7 +22,6 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import net.minecraft.world.level.material.Fluid;
 import net.minecraft.world.level.material.Fluids;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.capabilities.Capabilities;
@@ -200,7 +197,24 @@ public class CopperTapBlockEntity extends SmartBlockEntity {
             dripTickCounter++;
             if (dripTickCounter >= DRIP_INTERVAL) {
                 dripTickCounter = 0;
-                spawnDripParticle();
+                // Now handled on the server by sending a packet
+                if (level instanceof ServerLevel serverLevel && !dripFluid.isEmpty()) {
+                    Vec3 dripPos = Vec3.atCenterOf(worldPosition).add(0, -0.3, 0);
+                    PacketDistributor.sendToPlayersTrackingChunk(
+                            serverLevel,
+                            level.getChunkAt(worldPosition).getPos(),
+                            new CopperTapParticlePacket(CopperTapParticlePacket.ParticleType.DRIP, dripPos, Vec3.ZERO, dripFluid)
+                    );
+
+                    // Play sound from the server
+                    if (level.random.nextFloat() < 0.2f) {
+                        level.playSound(null, worldPosition,
+                                net.minecraft.sounds.SoundEvents.POINTED_DRIPSTONE_DRIP_WATER,
+                                net.minecraft.sounds.SoundSource.BLOCKS,
+                                0.2f,
+                                0.8f + level.random.nextFloat() * 0.4f);
+                    }
+                }
             }
         }
     }
@@ -355,64 +369,6 @@ public class CopperTapBlockEntity extends SmartBlockEntity {
         }
     }
 
-    /**
-     * 生成滴水粒子效果 - 模仿滴水石锥的效果
-     */
-    private void spawnDripParticle() {
-        if (level == null || !(level instanceof ServerLevel serverLevel))
-            return;
-
-        if (dripFluid.isEmpty())
-            return;
-
-        // 使用 Create 的 FluidFX 获取流体粒子
-        ParticleOptions fluidParticle = com.simibubi.create.content.fluids.FluidFX.getFluidParticle(dripFluid);
-
-        // 龙头出口位置
-        Vec3 spoutPos = Vec3.atCenterOf(worldPosition).add(0, -0.3, 0);
-
-        // 阶段1：悬挂在出水口的水滴，缓慢向下生长
-        // 在出水口附近生成多个粒子，模拟水滴逐渐变大
-        for (int i = 0; i < 2; i++) {
-            double yOffset = -0.05 * i; // 水滴向下延伸
-            serverLevel.sendParticles(
-                    fluidParticle,
-                    spoutPos.x, spoutPos.y + yOffset, spoutPos.z,
-                    1,
-                    0.005, 0.0, 0.005, // 几乎不扩散
-                    0.005 // 非常缓慢向下
-            );
-        }
-
-        // 阶段2：脱离出水口的水滴，自由落体
-        // 在稍微下方的位置生成，给予较大的向下速度
-        serverLevel.sendParticles(
-                fluidParticle,
-                spoutPos.x, spoutPos.y - 0.15, spoutPos.z,
-                1,
-                0.01, 0.0, 0.01,
-                0.15 // 较大的向下速度，模拟自由落体
-        );
-
-        // 阶段3：落下途中的水滴
-        serverLevel.sendParticles(
-                fluidParticle,
-                spoutPos.x, spoutPos.y - 0.3, spoutPos.z,
-                1,
-                0.015, 0.0, 0.015,
-                0.25 // 更大的向下速度
-        );
-
-        // 偶尔播放滴水声音
-        if (level.random.nextFloat() < 0.2f) {
-            level.playSound(null, worldPosition,
-                    net.minecraft.sounds.SoundEvents.POINTED_DRIPSTONE_DRIP_WATER,
-                    net.minecraft.sounds.SoundSource.BLOCKS,
-                    0.2f,
-                    0.8f + level.random.nextFloat() * 0.4f);
-        }
-    }
-
     private boolean tryProcess(IFluidHandler sourceHandler, BlockPos targetPos, Direction sourceDir, BlockPos sourcePos) {
         BlockEntity targetEntity = level.getBlockEntity(targetPos);
         BlockState targetState = level.getBlockState(targetPos);
@@ -561,7 +517,7 @@ public class CopperTapBlockEntity extends SmartBlockEntity {
         PacketDistributor.sendToPlayersTrackingChunk(
                 (ServerLevel) level,
                 level.getChunkAt(targetPos).getPos(),
-                new CopperTapParticlePacket(startPos, endPos, fluid)
+                new CopperTapParticlePacket(CopperTapParticlePacket.ParticleType.STREAM, startPos, endPos, fluid)
         );
     }
 
